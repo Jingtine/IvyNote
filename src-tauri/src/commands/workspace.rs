@@ -1,8 +1,10 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::errors::AppError;
 use crate::filesystem::model::FileTreeNode;
 use crate::filesystem::scanner::scan_markdown_tree;
+use crate::workspace::config::{self, WorkspaceConfig};
+use crate::workspace::recent;
 
 /// Scans a workspace root directory for its Markdown file tree.
 ///
@@ -10,4 +12,29 @@ use crate::filesystem::scanner::scan_markdown_tree;
 #[tauri::command]
 pub fn scan_root(root: String) -> Result<Vec<FileTreeNode>, AppError> {
     scan_markdown_tree(Path::new(&root))
+}
+
+fn app_data_dir(app: &tauri::AppHandle) -> Result<PathBuf, AppError> {
+    let base = dirs::data_dir().ok_or_else(|| AppError::Io {
+        message: "no app data dir".into(),
+    })?;
+    Ok(base.join(app.config().identifier.as_str()))
+}
+
+#[tauri::command]
+pub fn create_workspace(name: String, app: tauri::AppHandle) -> Result<WorkspaceConfig, AppError> {
+    config::create_workspace(&app_data_dir(&app)?, &name)
+}
+
+#[tauri::command]
+pub fn list_workspaces(app: tauri::AppHandle) -> Result<Vec<WorkspaceConfig>, AppError> {
+    config::list_workspaces(&app_data_dir(&app)?)
+}
+
+#[tauri::command]
+pub fn open_workspace(id: String, app: tauri::AppHandle) -> Result<WorkspaceConfig, AppError> {
+    let dir = app_data_dir(&app)?;
+    let config = config::load_workspace(&dir, &id)?;
+    recent::push_recent(&dir, &id)?;
+    Ok(config)
 }

@@ -9,6 +9,9 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             commands::workspace::scan_root,
+            commands::workspace::create_workspace,
+            commands::workspace::list_workspaces,
+            commands::workspace::open_workspace,
             commands::files::read_markdown_file,
             commands::files::save_markdown_file
         ])
