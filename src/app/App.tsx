@@ -1,8 +1,12 @@
+import { FileTree } from "../features/files/FileTree";
 import { WorkspacePicker } from "../features/workspace/WorkspacePicker";
 import { useWorkspaceStore } from "../features/workspace/workspaceStore";
 
 export function App() {
   const rootPath = useWorkspaceStore((state) => state.rootPath);
+  const tree = useWorkspaceStore((state) => state.tree);
+
+  const handleOpenMarkdown: (path: string) => void = () => {};
 
   if (rootPath === null) {
     return (
@@ -21,7 +25,9 @@ export function App() {
       <header aria-label="Workspace header">
         <WorkspacePicker />
       </header>
-      <aside aria-label="File explorer" />
+      <aside aria-label="File explorer">
+        <FileTree tree={tree} rootPath={rootPath} onOpenMarkdown={handleOpenMarkdown} />
+      </aside>
       <section aria-label="Editor" />
     </main>
   );
