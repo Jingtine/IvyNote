@@ -48,3 +48,31 @@ pub fn open_workspace(id: String, app: tauri::AppHandle) -> Result<WorkspaceConf
     recent::push_recent(&dir, &id)?;
     Ok(config)
 }
+
+/// Updates the exclusions override for a single mount and persists it.
+///
+/// Thin delegation only: all config logic lives in the workspace config
+/// service. Returns the updated config so the frontend can rescan with the
+/// new effective exclusions.
+#[tauri::command]
+pub fn update_mount_exclusions(
+    workspace_id: String,
+    path: String,
+    exclusions: Vec<String>,
+    app: tauri::AppHandle,
+) -> Result<WorkspaceConfig, AppError> {
+    config::update_mount_exclusions(&app_data_dir(&app)?, &workspace_id, &path, &exclusions)
+}
+
+/// Updates the workspace-level default exclusions and persists them.
+///
+/// Thin delegation only: all config logic lives in the workspace config
+/// service. Returns the updated config so the frontend can rescan all mounts.
+#[tauri::command]
+pub fn update_workspace_exclusions(
+    workspace_id: String,
+    exclusions: Vec<String>,
+    app: tauri::AppHandle,
+) -> Result<WorkspaceConfig, AppError> {
+    config::update_workspace_exclusions(&app_data_dir(&app)?, &workspace_id, &exclusions)
+}

@@ -7,6 +7,8 @@ import {
   createWorkspace as createWorkspaceApi,
   openWorkspace as openWorkspaceApi,
   scanRoot,
+  updateMountExclusions as updateMountExclusionsApi,
+  updateWorkspaceExclusions as updateWorkspaceExclusionsApi,
 } from "./workspaceApi";
 
 interface WorkspaceState {
@@ -19,6 +21,8 @@ interface WorkspaceState {
   addMount: (path: string, permission: MountPermission) => Promise<void>;
   removeMount: (path: string) => Promise<void>;
   setMountPermission: (path: string, permission: MountPermission) => Promise<void>;
+  updateMountExclusions: (path: string, exclusions: string[]) => Promise<void>;
+  updateWorkspaceExclusions: (exclusions: string[]) => Promise<void>;
   refreshTree: () => Promise<void>;
 }
 
@@ -30,6 +34,8 @@ function toErrorMessage(err: unknown): string {
 function effectiveExclusions(workspace: WorkspaceConfig, mount: MountConfig): string[] {
   return mount.exclusions ?? workspace.exclusions ?? [...DEFAULT_EXCLUSIONS];
 }
+
+export { effectiveExclusions };
 
 function readableMounts(mounts: MountConfig[]): MountConfig[] {
   return mounts.filter((mount) => mount.permission === "read-write" || mount.permission === "read-only");
@@ -107,6 +113,40 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         ),
       },
     });
+  },
+  updateMountExclusions: async (path, exclusions) => {
+    const workspace = get().workspace;
+    if (workspace === null) return;
+    try {
+      const updated = await updateMountExclusionsApi(workspace.id, path, exclusions);
+      const mount = updated.mounts.find((mount) => mount.path === path);
+      const treeByMount = { ...get().treeByMount };
+      if (
+        mount !== undefined &&
+        (mount.permission === "read-write" || mount.permission === "read-only")
+      ) {
+        treeByMount[path] = await scanRoot(path, effectiveExclusions(updated, mount));
+      } else {
+        delete treeByMount[path];
+      }
+      set({ workspace: updated, treeByMount, error: null });
+    } catch (err) {
+      set({ error: toErrorMessage(err) });
+    }
+  },
+  updateWorkspaceExclusions: async (exclusions) => {
+    const workspace = get().workspace;
+    if (workspace === null) return;
+    try {
+      const updated = await updateWorkspaceExclusionsApi(workspace.id, exclusions);
+      const next: Record<string, FileTreeNode[]> = {};
+      for (const mount of readableMounts(updated.mounts)) {
+        next[mount.path] = await scanRoot(mount.path, effectiveExclusions(updated, mount));
+      }
+      set({ workspace: updated, treeByMount: next, error: null });
+    } catch (err) {
+      set({ error: toErrorMessage(err) });
+    }
   },
   refreshTree: async () => {
     const { workspace } = get();

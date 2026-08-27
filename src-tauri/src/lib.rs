@@ -13,6 +13,8 @@ pub fn run() {
             commands::workspace::list_workspaces,
             commands::workspace::list_recent_workspaces,
             commands::workspace::open_workspace,
+            commands::workspace::update_mount_exclusions,
+            commands::workspace::update_workspace_exclusions,
             commands::files::read_markdown_file,
             commands::files::save_markdown_file,
             commands::files::create_folder,

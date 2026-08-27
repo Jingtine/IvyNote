@@ -24,3 +24,18 @@ export async function listRecentWorkspaces(): Promise<string[]> {
 export async function openWorkspace(id: string): Promise<WorkspaceConfig> {
   return invoke<WorkspaceConfig>("open_workspace", { id });
 }
+
+export async function updateMountExclusions(
+  workspaceId: string,
+  path: string,
+  exclusions: string[],
+): Promise<WorkspaceConfig> {
+  return invoke<WorkspaceConfig>("update_mount_exclusions", { workspaceId, path, exclusions });
+}
+
+export async function updateWorkspaceExclusions(
+  workspaceId: string,
+  exclusions: string[],
+): Promise<WorkspaceConfig> {
+  return invoke<WorkspaceConfig>("update_workspace_exclusions", { workspaceId, exclusions });
+}

@@ -115,6 +115,37 @@ pub fn effective_exclusions(config: &WorkspaceConfig, mount: &MountConfig) -> Ve
     })
 }
 
+pub fn update_mount_exclusions(
+    app_data_dir: &Path,
+    workspace_id: &str,
+    path: &str,
+    exclusions: &[String],
+) -> Result<WorkspaceConfig, AppError> {
+    let mut config = load_workspace(app_data_dir, workspace_id)?;
+    let mount = config
+        .mounts
+        .iter_mut()
+        .find(|mount| mount.path == path)
+        .ok_or_else(|| AppError::MountNotFound {
+            workspace_id: workspace_id.to_string(),
+            path: path.to_string(),
+        })?;
+    mount.exclusions = Some(exclusions.to_vec());
+    save_workspace(app_data_dir, &config)?;
+    Ok(config)
+}
+
+pub fn update_workspace_exclusions(
+    app_data_dir: &Path,
+    workspace_id: &str,
+    exclusions: &[String],
+) -> Result<WorkspaceConfig, AppError> {
+    let mut config = load_workspace(app_data_dir, workspace_id)?;
+    config.exclusions = exclusions.to_vec();
+    save_workspace(app_data_dir, &config)?;
+    Ok(config)
+}
+
 pub fn list_workspaces(app_data_dir: &Path) -> Result<Vec<WorkspaceConfig>, AppError> {
     let dir = workspace_dir(app_data_dir)?;
     let mut out = Vec::new();
@@ -277,5 +308,56 @@ mod tests {
         assert_eq!(names, vec!["Alpha", "Beta"]);
         assert_eq!(list[0].id, first.id);
         assert_eq!(list[1].id, second.id);
+    }
+
+    #[test]
+    fn update_mount_exclusions_saves_override_and_returns_config() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut ws = create_workspace(tmp.path(), "WS").unwrap();
+        ws.mounts.push(MountConfig {
+            path: "D:\\Notes".into(),
+            permission: MountPermission::ReadWrite,
+            exclusions: None,
+        });
+        save_workspace(tmp.path(), &ws).unwrap();
+
+        let updated =
+            update_mount_exclusions(tmp.path(), &ws.id, "D:\\Notes", &["tmp".to_string()]).unwrap();
+
+        assert_eq!(
+            updated.mounts[0].exclusions.as_deref(),
+            Some(&["tmp".to_string()][..])
+        );
+        assert_eq!(updated.exclusions, default_exclusions());
+        let loaded = load_workspace(tmp.path(), &ws.id).unwrap();
+        assert_eq!(
+            loaded.mounts[0].exclusions.as_deref(),
+            Some(&["tmp".to_string()][..])
+        );
+    }
+
+    #[test]
+    fn update_mount_exclusions_unknown_mount_returns_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = create_workspace(tmp.path(), "WS").unwrap();
+        let err = update_mount_exclusions(tmp.path(), &ws.id, "NOPE", &[]).unwrap_err();
+        match err {
+            AppError::MountNotFound { workspace_id, path } => {
+                assert_eq!(workspace_id, ws.id);
+                assert_eq!(path, "NOPE");
+            }
+            other => panic!("expected MountNotFound, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn update_workspace_exclusions_saves_and_returns_config() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = create_workspace(tmp.path(), "WS").unwrap();
+        let updated =
+            update_workspace_exclusions(tmp.path(), &ws.id, &["custom".to_string()]).unwrap();
+        assert_eq!(updated.exclusions, vec!["custom"]);
+        let loaded = load_workspace(tmp.path(), &ws.id).unwrap();
+        assert_eq!(loaded.exclusions, vec!["custom"]);
     }
 }

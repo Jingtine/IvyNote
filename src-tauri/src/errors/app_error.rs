@@ -11,6 +11,7 @@ pub enum AppError {
     WorkspaceNotFound { id: String },
     InvalidWorkspaceConfig { id: String },
     CrossMountMoveNotAllowed { path: String },
+    MountNotFound { workspace_id: String, path: String },
 }
 
 impl AppError {
@@ -59,6 +60,11 @@ impl AppError {
             AppError::CrossMountMoveNotAllowed { path } => AppErrorPayload {
                 code: "crossMountMoveNotAllowed",
                 message: format!("Cannot move across mounts: {path}"),
+                path: Some(path),
+            },
+            AppError::MountNotFound { workspace_id, path } => AppErrorPayload {
+                code: "mountNotFound",
+                message: format!("Mount not found in workspace {workspace_id}: {path}"),
                 path: Some(path),
             },
         }
@@ -179,5 +185,17 @@ mod tests {
         assert_eq!(json["code"], "invalidWorkspaceConfig");
         assert!(json["message"].as_str().unwrap().contains("abc123"));
         assert!(json.get("path").is_none());
+    }
+
+    #[test]
+    fn mount_not_found_serializes_stable_code_and_path() {
+        let error = AppError::MountNotFound {
+            workspace_id: "ws-1".to_string(),
+            path: "D:\\Notes".to_string(),
+        };
+        let json = serde_json::to_value(&error).expect("error must serialize");
+        assert_eq!(json["code"], "mountNotFound");
+        assert_eq!(json["path"], "D:\\Notes");
+        assert!(json["message"].as_str().unwrap().contains("D:\\Notes"));
     }
 }

@@ -5,7 +5,11 @@ import { open } from "@tauri-apps/plugin-dialog";
 
 import type { WorkspaceConfig } from "./workspaceConfig";
 import { MountManager } from "./MountManager";
-import { scanRoot } from "./workspaceApi";
+import {
+  scanRoot,
+  updateMountExclusions,
+  updateWorkspaceExclusions,
+} from "./workspaceApi";
 import { useWorkspaceStore } from "./workspaceStore";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
@@ -18,10 +22,14 @@ vi.mock("./workspaceApi", () => ({
   listWorkspaces: vi.fn(),
   listRecentWorkspaces: vi.fn(),
   scanRoot: vi.fn(),
+  updateMountExclusions: vi.fn(),
+  updateWorkspaceExclusions: vi.fn(),
 }));
 
 const openMock = vi.mocked(open);
 const scanRootMock = vi.mocked(scanRoot);
+const updateMountExclusionsApiMock = vi.mocked(updateMountExclusions);
+const updateWorkspaceExclusionsApiMock = vi.mocked(updateWorkspaceExclusions);
 
 function makeWorkspace(overrides: Partial<WorkspaceConfig> = {}): WorkspaceConfig {
   return {
@@ -39,6 +47,8 @@ function makeWorkspace(overrides: Partial<WorkspaceConfig> = {}): WorkspaceConfi
 beforeEach(() => {
   openMock.mockReset();
   scanRootMock.mockReset();
+  updateMountExclusionsApiMock.mockReset();
+  updateWorkspaceExclusionsApiMock.mockReset();
   useWorkspaceStore.setState({
     workspace: makeWorkspace(),
     treeByMount: {},
@@ -114,4 +124,73 @@ test("remove button calls the onRemoveMount callback with the mount path", async
 
   expect(onRemoveMount).toHaveBeenCalledTimes(1);
   expect(onRemoveMount).toHaveBeenCalledWith("C:\\notes");
+});
+
+test("workspace default exclusions input shows the built-in defaults when none are set", () => {
+  render(<MountManager onRemoveMount={() => {}} />);
+
+  expect(
+    screen.getByRole("textbox", { name: "Workspace default exclusions" }),
+  ).toHaveValue(".git, node_modules, dist, build, target, .venv, venv, .cache, coverage");
+});
+
+test("mounts without an override show the resolved default exclusions", () => {
+  render(<MountManager onRemoveMount={() => {}} />);
+
+  expect(
+    screen.getAllByText(
+      "Effective: .git, node_modules, dist, build, target, .venv, venv, .cache, coverage",
+    ),
+  ).toHaveLength(2);
+});
+
+test("mounts with an override show the override as the effective exclusions", () => {
+  useWorkspaceStore.setState({
+    workspace: makeWorkspace({
+      mounts: [
+        { path: "C:\\notes", permission: "read-write", exclusions: ["tmp", "build"] },
+        { path: "D:\\archive", permission: "excluded" },
+      ],
+    }),
+    treeByMount: {},
+    error: null,
+  });
+
+  render(<MountManager onRemoveMount={() => {}} />);
+
+  expect(screen.getByText("Effective: tmp, build")).toBeInTheDocument();
+});
+
+test("saving mount exclusions calls the store action with the parsed list", async () => {
+  const user = userEvent.setup();
+  updateMountExclusionsApiMock.mockResolvedValue(makeWorkspace());
+  render(<MountManager onRemoveMount={() => {}} />);
+
+  const input = screen.getByRole("textbox", { name: "Exclusions for C:\\notes" });
+  await user.clear(input);
+  await user.type(input, "tmp, build, node_modules");
+  await user.click(screen.getByRole("button", { name: "Save exclusions for C:\\notes" }));
+
+  await waitFor(() =>
+    expect(updateMountExclusionsApiMock).toHaveBeenCalledWith("ws-1", "C:\\notes", [
+      "tmp",
+      "build",
+      "node_modules",
+    ]),
+  );
+});
+
+test("saving workspace default exclusions calls the store action", async () => {
+  const user = userEvent.setup();
+  updateWorkspaceExclusionsApiMock.mockResolvedValue(makeWorkspace());
+  render(<MountManager onRemoveMount={() => {}} />);
+
+  const input = screen.getByRole("textbox", { name: "Workspace default exclusions" });
+  await user.clear(input);
+  await user.type(input, ".cache, coverage");
+  await user.click(screen.getByRole("button", { name: "Save default exclusions" }));
+
+  await waitFor(() =>
+    expect(updateWorkspaceExclusionsApiMock).toHaveBeenCalledWith("ws-1", [".cache", "coverage"]),
+  );
 });

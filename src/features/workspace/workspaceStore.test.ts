@@ -7,6 +7,8 @@ import {
   listWorkspaces,
   openWorkspace as openWorkspaceApi,
   scanRoot,
+  updateMountExclusions as updateMountExclusionsApi,
+  updateWorkspaceExclusions as updateWorkspaceExclusionsApi,
 } from "./workspaceApi";
 import { useWorkspaceStore } from "./workspaceStore";
 
@@ -15,12 +17,16 @@ vi.mock("./workspaceApi", () => ({
   listWorkspaces: vi.fn(),
   openWorkspace: vi.fn(),
   scanRoot: vi.fn(),
+  updateMountExclusions: vi.fn(),
+  updateWorkspaceExclusions: vi.fn(),
 }));
 
 const createWorkspaceApiMock = vi.mocked(createWorkspaceApi);
 const listWorkspacesMock = vi.mocked(listWorkspaces);
 const openWorkspaceApiMock = vi.mocked(openWorkspaceApi);
 const scanRootMock = vi.mocked(scanRoot);
+const updateMountExclusionsApiMock = vi.mocked(updateMountExclusionsApi);
+const updateWorkspaceExclusionsApiMock = vi.mocked(updateWorkspaceExclusionsApi);
 
 function makeWorkspace(overrides: Partial<WorkspaceConfig> = {}): WorkspaceConfig {
   return {
@@ -48,6 +54,8 @@ beforeEach(() => {
   listWorkspacesMock.mockReset();
   openWorkspaceApiMock.mockReset();
   scanRootMock.mockReset();
+  updateMountExclusionsApiMock.mockReset();
+  updateWorkspaceExclusionsApiMock.mockReset();
   useWorkspaceStore.setState({ workspace: null, treeByMount: {}, error: null });
 });
 
@@ -300,4 +308,58 @@ test("switchToWelcome clears the workspace and trees", () => {
   expect(state.workspace).toBeNull();
   expect(state.treeByMount).toEqual({});
   expect(state.error).toBeNull();
+});
+
+test("updateMountExclusions persists via the API and rescans only the mount", async () => {
+  const config = makeWorkspace();
+  useWorkspaceStore.setState({
+    workspace: config,
+    treeByMount: { "C:\\notes": notesTree, "D:\\wiki": wikiTree },
+  });
+  const updated = makeWorkspace({
+    mounts: [
+      { path: "C:\\notes", permission: "read-write", exclusions: ["tmp"] },
+      { path: "D:\\wiki", permission: "read-only" },
+      { path: "D:\\archive", permission: "excluded" },
+    ],
+  });
+  updateMountExclusionsApiMock.mockResolvedValue(updated);
+  const refreshedNotes: FileTreeNode[] = [
+    { name: "a.md", path: "C:\\notes\\a.md", kind: "markdown" },
+    { name: "new.md", path: "C:\\notes\\new.md", kind: "markdown" },
+  ];
+  scanRootMock.mockResolvedValueOnce(refreshedNotes);
+
+  await useWorkspaceStore.getState().updateMountExclusions("C:\\notes", ["tmp"]);
+
+  expect(updateMountExclusionsApiMock).toHaveBeenCalledTimes(1);
+  expect(updateMountExclusionsApiMock).toHaveBeenCalledWith("ws-1", "C:\\notes", ["tmp"]);
+  expect(scanRootMock).toHaveBeenCalledTimes(1);
+  expect(scanRootMock).toHaveBeenCalledWith("C:\\notes", ["tmp"]);
+  const state = useWorkspaceStore.getState();
+  expect(state.workspace).toEqual(updated);
+  expect(state.treeByMount["C:\\notes"]).toEqual(refreshedNotes);
+  expect(state.treeByMount["D:\\wiki"]).toEqual(wikiTree);
+});
+
+test("updateWorkspaceExclusions persists and rescans all readable mounts", async () => {
+  const config = makeWorkspace();
+  useWorkspaceStore.setState({
+    workspace: config,
+    treeByMount: { "C:\\notes": notesTree, "D:\\wiki": wikiTree },
+  });
+  const updated = makeWorkspace({ exclusions: ["dist", "coverage"] });
+  updateWorkspaceExclusionsApiMock.mockResolvedValue(updated);
+  scanRootMock.mockResolvedValueOnce(notesTree).mockResolvedValueOnce(wikiTree);
+
+  await useWorkspaceStore.getState().updateWorkspaceExclusions(["dist", "coverage"]);
+
+  expect(updateWorkspaceExclusionsApiMock).toHaveBeenCalledTimes(1);
+  expect(updateWorkspaceExclusionsApiMock).toHaveBeenCalledWith("ws-1", ["dist", "coverage"]);
+  expect(scanRootMock).toHaveBeenCalledTimes(2);
+  expect(scanRootMock).toHaveBeenNthCalledWith(1, "C:\\notes", ["dist", "coverage"]);
+  expect(scanRootMock).toHaveBeenNthCalledWith(2, "D:\\wiki", ["dist", "coverage"]);
+  const state = useWorkspaceStore.getState();
+  expect(state.workspace?.exclusions).toEqual(["dist", "coverage"]);
+  expect(state.treeByMount).toEqual({ "C:\\notes": notesTree, "D:\\wiki": wikiTree });
 });
