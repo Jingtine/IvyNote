@@ -20,6 +20,11 @@ pub fn create_markdown(parent: &Path, name: &str) -> Result<PathBuf, AppError> {
         });
     }
     let path = parent.join(name);
+    if path.exists() {
+        return Err(AppError::Io {
+            message: format!("target already exists: {}", path.to_string_lossy()),
+        });
+    }
     fs::write(&path, b"").map_err(|e| io_error(e, &path))?;
     Ok(path)
 }
@@ -44,6 +49,11 @@ pub fn rename_path(path: &Path, new_name: &str) -> Result<PathBuf, AppError> {
     let target = path.with_file_name(new_name);
     if current == new_name {
         return Ok(target);
+    }
+    if target.exists() {
+        return Err(AppError::Io {
+            message: format!("target already exists: {}", target.to_string_lossy()),
+        });
     }
     fs::rename(path, &target).map_err(|e| io_error(e, &target))?;
     Ok(target)
@@ -222,6 +232,23 @@ mod tests {
     }
 
     #[test]
+    fn create_markdown_rejects_existing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = touch(dir.path(), "todo.md");
+
+        let err = create_markdown(dir.path(), "todo.md").unwrap_err();
+        match err {
+            AppError::Io { .. } => {}
+            other => panic!("expected Io, got {other:?}"),
+        }
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "content",
+            "existing file must not be truncated"
+        );
+    }
+
+    #[test]
     fn rename_path_renames_within_same_dir_and_old_path_is_gone() {
         let dir = tempfile::tempdir().unwrap();
         let original = touch(dir.path(), "old.md");
@@ -248,6 +275,25 @@ mod tests {
         assert_eq!(renamed, dir.path().join("new folder"));
         assert!(renamed.is_dir());
         assert!(!folder.exists(), "old folder must not exist after rename");
+    }
+
+    #[test]
+    fn rename_path_rejects_overwriting_existing_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let original = touch(dir.path(), "a.md");
+        touch(dir.path(), "b.md");
+
+        let err = rename_path(&original, "b.md").unwrap_err();
+        match err {
+            AppError::Io { .. } => {}
+            other => panic!("expected Io, got {other:?}"),
+        }
+        assert!(original.exists(), "source must be untouched on failure");
+        assert_eq!(
+            fs::read_to_string(dir.path().join("b.md")).unwrap(),
+            "content",
+            "existing target content must be preserved"
+        );
     }
 
     #[test]
