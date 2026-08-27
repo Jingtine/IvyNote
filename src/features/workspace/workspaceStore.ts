@@ -109,14 +109,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     });
   },
   refreshTree: async () => {
-    const { workspace, treeByMount } = get();
+    const { workspace } = get();
     if (workspace === null) return;
     try {
       const next: Record<string, FileTreeNode[]> = {};
       for (const mount of readableMounts(workspace.mounts)) {
         next[mount.path] = await scanRoot(mount.path, effectiveExclusions(workspace, mount));
       }
-      set({ treeByMount: { ...treeByMount, ...next }, error: null });
+      set({ treeByMount: next, error: null });
     } catch (err) {
       set({ error: toErrorMessage(err) });
     }

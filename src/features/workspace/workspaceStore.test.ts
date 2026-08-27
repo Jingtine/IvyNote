@@ -242,6 +242,35 @@ test("refreshTree rescans all read-write and read-only mounts", async () => {
   expect(state.error).toBeNull();
 });
 
+test("refreshTree drops trees for mounts excluded after a permission change", async () => {
+  const config = makeWorkspace({
+    mounts: [
+      { path: "C:\\notes", permission: "read-write" },
+      { path: "D:\\wiki", permission: "read-only" },
+    ],
+  });
+  useWorkspaceStore.setState({
+    workspace: config,
+    treeByMount: { "C:\\notes": notesTree, "D:\\wiki": wikiTree },
+  });
+
+  await useWorkspaceStore.getState().setMountPermission("C:\\notes", "excluded");
+  const refreshedWiki: FileTreeNode[] = [
+    { name: "b.md", path: "D:\\wiki\\b.md", kind: "markdown" },
+    { name: "d.md", path: "D:\\wiki\\d.md", kind: "markdown" },
+  ];
+  scanRootMock.mockResolvedValue(refreshedWiki);
+
+  await useWorkspaceStore.getState().refreshTree();
+
+  expect(scanRootMock).toHaveBeenCalledTimes(1);
+  expect(scanRootMock).toHaveBeenCalledWith("D:\\wiki", [".git", "node_modules"]);
+  const state = useWorkspaceStore.getState();
+  expect(state.treeByMount["C:\\notes"]).toBeUndefined();
+  expect(state.treeByMount["D:\\wiki"]).toEqual(refreshedWiki);
+  expect(state.error).toBeNull();
+});
+
 test("refreshTree error keeps the old trees and records the error", async () => {
   const config = makeWorkspace();
   useWorkspaceStore.setState({
