@@ -1,0 +1,16 @@
+:root {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f6f7f9;
+  --text-primary: #1f2328;
+  --text-muted: #59636e;
+  --border-default: #d1d9e0;
+  --accent: #0969da;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --ui-font: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --editor-font: "Cascadia Code", Consolas, "Courier New", monospace;
+}
