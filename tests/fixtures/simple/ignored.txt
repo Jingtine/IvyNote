@@ -1,0 +1,4 @@
+This file is not Markdown.
+
+The v0.1 scanner only includes .md files, so this file must never appear
+in the file tree or be openable as a note.
