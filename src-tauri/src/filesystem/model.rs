@@ -1,15 +1,16 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileTreeNode {
     pub name: String,
     pub path: String,
     pub kind: FileNodeKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub children: Option<Vec<FileTreeNode>>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum FileNodeKind {
     Directory,
@@ -113,6 +114,56 @@ mod tests {
         assert_eq!(json["kind"], "directory");
         assert_eq!(json["children"][0]["kind"], "markdown");
         assert_eq!(json["children"][0]["name"], "a.md");
+    }
+
+    #[test]
+    fn file_tree_node_leaf_omits_children_key() {
+        let leaf = FileTreeNode {
+            name: "a.md".to_string(),
+            path: "notes/a.md".to_string(),
+            kind: FileNodeKind::Markdown,
+            children: None,
+        };
+        let json = serde_json::to_value(&leaf).expect("leaf must serialize");
+        assert!(
+            json.get("children").is_none(),
+            "leaf node must not serialize a children key, got: {json}"
+        );
+    }
+
+    #[test]
+    fn file_tree_node_directory_keeps_children_key() {
+        let dir = FileTreeNode {
+            name: "notes".to_string(),
+            path: "notes".to_string(),
+            kind: FileNodeKind::Directory,
+            children: Some(vec![FileTreeNode {
+                name: "a.md".to_string(),
+                path: "notes/a.md".to_string(),
+                kind: FileNodeKind::Markdown,
+                children: None,
+            }]),
+        };
+        let json = serde_json::to_value(&dir).expect("directory must serialize");
+        assert!(
+            json.get("children").is_some(),
+            "directory node must serialize a children key, got: {json}"
+        );
+        assert_eq!(json["children"].as_array().map(Vec::len), Some(1));
+        assert!(json["children"][0].get("children").is_none());
+    }
+
+    #[test]
+    fn file_tree_node_deserializes_without_children() {
+        let node: FileTreeNode = serde_json::from_value(serde_json::json!({
+            "name": "a.md",
+            "path": "notes/a.md",
+            "kind": "markdown"
+        }))
+        .expect("node without children must deserialize");
+        assert_eq!(node.name, "a.md");
+        assert_eq!(node.path, "notes/a.md");
+        assert!(node.children.is_none());
     }
 
     #[test]
