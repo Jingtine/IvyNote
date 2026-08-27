@@ -32,7 +32,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
   },
   refreshTree: async () => {
-    const rootPath = get().rootPath;
+    const { rootPath } = get();
     if (rootPath === null) return;
     try {
       const tree = await scanRoot(rootPath);
