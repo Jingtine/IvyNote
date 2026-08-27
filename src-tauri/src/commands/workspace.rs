@@ -9,9 +9,14 @@ use crate::workspace::recent;
 /// Scans a workspace root directory for its Markdown file tree.
 ///
 /// Thin delegation only: all scanning logic lives in the scanner service.
+/// When `exclusions` is `None`, the workspace defaults are used.
 #[tauri::command]
-pub fn scan_root(root: String) -> Result<Vec<FileTreeNode>, AppError> {
-    scan_markdown_tree(Path::new(&root))
+pub fn scan_root(
+    root: String,
+    exclusions: Option<Vec<String>>,
+) -> Result<Vec<FileTreeNode>, AppError> {
+    let exclusions = exclusions.unwrap_or_else(config::default_exclusions);
+    scan_markdown_tree(Path::new(&root), &exclusions)
 }
 
 fn app_data_dir(app: &tauri::AppHandle) -> Result<PathBuf, AppError> {

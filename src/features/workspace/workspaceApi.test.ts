@@ -26,18 +26,35 @@ test("scanRoot invokes scan_root with the root argument shape", async () => {
   ];
   invokeMock.mockResolvedValue(tree);
 
-  const result = await scanRoot("C:\\notes");
+  const result = await scanRoot("C:\\notes", ["node_modules", "dist"]);
 
   expect(invokeMock).toHaveBeenCalledTimes(1);
-  expect(invokeMock).toHaveBeenCalledWith("scan_root", { root: "C:\\notes" });
+  expect(invokeMock).toHaveBeenCalledWith("scan_root", {
+    root: "C:\\notes",
+    exclusions: ["node_modules", "dist"],
+  });
   expect(result).toEqual(tree);
+});
+
+test("scanRoot omits exclusions when not provided", async () => {
+  invokeMock.mockResolvedValue([]);
+
+  await scanRoot("C:\\notes");
+
+  expect(invokeMock).toHaveBeenCalledWith("scan_root", {
+    root: "C:\\notes",
+    exclusions: undefined,
+  });
 });
 
 test("scanRoot propagates invoke errors", async () => {
   invokeMock.mockRejectedValue(new Error("boom"));
 
   await expect(scanRoot("C:\\missing")).rejects.toThrow("boom");
-  expect(invokeMock).toHaveBeenCalledWith("scan_root", { root: "C:\\missing" });
+  expect(invokeMock).toHaveBeenCalledWith("scan_root", {
+    root: "C:\\missing",
+    exclusions: undefined,
+  });
 });
 
 test("createWorkspace invokes create_workspace with the name argument shape", async () => {
