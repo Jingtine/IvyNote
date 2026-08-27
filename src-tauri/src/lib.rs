@@ -13,7 +13,12 @@ pub fn run() {
             commands::workspace::list_workspaces,
             commands::workspace::open_workspace,
             commands::files::read_markdown_file,
-            commands::files::save_markdown_file
+            commands::files::save_markdown_file,
+            commands::files::create_folder,
+            commands::files::create_markdown,
+            commands::files::rename_path,
+            commands::files::move_path,
+            commands::files::delete_to_trash
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {
