@@ -20,6 +20,8 @@ beforeEach(() => {
     draft: "",
     dirty: false,
     loading: false,
+    saving: false,
+    conflict: false,
     error: null,
   });
   useWorkspaceStore.setState({ rootPath: null, tree: [], error: null });

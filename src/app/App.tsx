@@ -11,7 +11,6 @@ export function App() {
 
   const activeDocument = useEditorStore((state) => state.document);
   const draft = useEditorStore((state) => state.draft);
-  const dirty = useEditorStore((state) => state.dirty);
   const loading = useEditorStore((state) => state.loading);
   const error = useEditorStore((state) => state.error);
   const loadDocument = useEditorStore((state) => state.loadDocument);
@@ -51,7 +50,7 @@ export function App() {
           loading ? <p>Loading document…</p> : <p>No document open. Select a Markdown file.</p>
         ) : (
           <>
-            <EditorToolbar document={activeDocument} dirty={dirty} />
+            <EditorToolbar />
             <MarkdownSourceEditor value={draft} onChange={setDraft} />
           </>
         )}

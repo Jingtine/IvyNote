@@ -7,7 +7,8 @@ pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             commands::workspace::scan_root,
-            commands::files::read_markdown_file
+            commands::files::read_markdown_file,
+            commands::files::save_markdown_file
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {
