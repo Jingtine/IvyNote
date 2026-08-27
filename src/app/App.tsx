@@ -1,4 +1,7 @@
 import { FileTree } from "../features/files/FileTree";
+import { MarkdownSourceEditor } from "../features/editor/MarkdownSourceEditor";
+import { EditorToolbar } from "../features/editor/EditorToolbar";
+import { useEditorStore } from "../features/editor/editorStore";
 import { WorkspacePicker } from "../features/workspace/WorkspacePicker";
 import { useWorkspaceStore } from "../features/workspace/workspaceStore";
 
@@ -6,7 +9,17 @@ export function App() {
   const rootPath = useWorkspaceStore((state) => state.rootPath);
   const tree = useWorkspaceStore((state) => state.tree);
 
-  const handleOpenMarkdown: (path: string) => void = () => {};
+  const activeDocument = useEditorStore((state) => state.document);
+  const draft = useEditorStore((state) => state.draft);
+  const dirty = useEditorStore((state) => state.dirty);
+  const loading = useEditorStore((state) => state.loading);
+  const error = useEditorStore((state) => state.error);
+  const loadDocument = useEditorStore((state) => state.loadDocument);
+  const setDraft = useEditorStore((state) => state.setDraft);
+
+  const handleOpenMarkdown = (path: string) => {
+    void loadDocument(path);
+  };
 
   if (rootPath === null) {
     return (
@@ -28,7 +41,21 @@ export function App() {
       <aside aria-label="File explorer">
         <FileTree tree={tree} rootPath={rootPath} onOpenMarkdown={handleOpenMarkdown} />
       </aside>
-      <section aria-label="Editor" />
+      <section aria-label="Editor">
+        {activeDocument === null ? (
+          loading ? <p>Loading document…</p> : <p>No document open. Select a Markdown file.</p>
+        ) : (
+          <>
+            <EditorToolbar document={activeDocument} dirty={dirty} />
+            {error !== null && (
+              <p role="alert" className="editor-error">
+                {error}
+              </p>
+            )}
+            <MarkdownSourceEditor value={draft} onChange={setDraft} />
+          </>
+        )}
+      </section>
     </main>
   );
 }
