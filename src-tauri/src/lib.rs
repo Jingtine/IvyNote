@@ -1,9 +1,11 @@
+pub mod commands;
 pub mod errors;
 pub mod filesystem;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![commands::workspace::scan_root])
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
