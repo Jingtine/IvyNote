@@ -22,6 +22,7 @@ export interface EditorState {
   conflict: boolean;
   error: string | null;
   pendingPath: string | null;
+  fileMissing: boolean;
   loadDocument(path: string): Promise<void>;
   setDraft(value: string): void;
   replaceSnapshot(snapshot: TextDocumentSnapshot): void;
@@ -32,6 +33,7 @@ export interface EditorState {
   saveAndOpenPending(): Promise<void>;
   discardAndOpenPending(): Promise<void>;
   cancelOpenRequest(): void;
+  setFileMissing(value: boolean): void;
 }
 
 export const useEditorStore = create<EditorState>((set, get) => ({
@@ -43,6 +45,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   conflict: false,
   error: null,
   pendingPath: null,
+  fileMissing: false,
   loadDocument: async (path) => {
     set({ loading: true, error: null, conflict: false });
     try {
@@ -53,6 +56,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         dirty: false,
         loading: false,
         error: null,
+        fileMissing: false,
       });
     } catch (error) {
       set({ loading: false, error: toErrorMessage(error) });
@@ -76,8 +80,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     });
   },
   save: async () => {
-    const { document, draft, dirty, saving } = get();
+    const { document, draft, dirty, saving, fileMissing } = get();
     if (document === null || !dirty) return true;
+    if (fileMissing) return false;
     if (saving) return false;
     set({ saving: true, conflict: false });
     try {
@@ -125,4 +130,5 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     await get().loadDocument(pendingPath);
   },
   cancelOpenRequest: () => set({ pendingPath: null }),
+  setFileMissing: (value) => set({ fileMissing: value }),
 }));

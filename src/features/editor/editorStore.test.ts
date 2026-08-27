@@ -44,6 +44,7 @@ beforeEach(() => {
     saving: false,
     conflict: false,
     pendingPath: null,
+    fileMissing: false,
   });
 });
 
@@ -271,4 +272,42 @@ test("save is a no-op without an open document", async () => {
   await useEditorStore.getState().save();
 
   expect(saveMarkdownDocumentMock).not.toHaveBeenCalled();
+});
+
+test("save refuses to write and returns false while the file is missing on disk", async () => {
+  readMarkdownFileMock.mockResolvedValue(makeSnapshot());
+  await useEditorStore.getState().loadDocument("C:\\notes\\hello.md");
+  useEditorStore.getState().setDraft("# Edited\n");
+  useEditorStore.getState().setFileMissing(true);
+
+  const saved = await useEditorStore.getState().save();
+
+  expect(saved).toBe(false);
+  expect(saveMarkdownDocumentMock).not.toHaveBeenCalled();
+  expect(useEditorStore.getState().dirty).toBe(true);
+  expect(useEditorStore.getState().draft).toBe("# Edited\n");
+  expect(useEditorStore.getState().document?.path).toBe("C:\\notes\\hello.md");
+});
+
+test("save works again after the file is no longer missing", async () => {
+  readMarkdownFileMock.mockResolvedValue(makeSnapshot());
+  await useEditorStore.getState().loadDocument("C:\\notes\\hello.md");
+  useEditorStore.getState().setDraft("# Edited\n");
+  useEditorStore.getState().setFileMissing(true);
+  useEditorStore.getState().setFileMissing(false);
+  saveMarkdownDocumentMock.mockResolvedValue({ modifiedAtMs: 1_700_000_000_500, size: 9 });
+
+  const saved = await useEditorStore.getState().save();
+
+  expect(saved).toBe(true);
+  expect(saveMarkdownDocumentMock).toHaveBeenCalledTimes(1);
+});
+
+test("loading another document resets the missing-on-disk state", async () => {
+  useEditorStore.getState().setFileMissing(true);
+  readMarkdownFileMock.mockResolvedValue(makeSnapshot());
+
+  await useEditorStore.getState().loadDocument("C:\\notes\\hello.md");
+
+  expect(useEditorStore.getState().fileMissing).toBe(false);
 });

@@ -11,6 +11,7 @@ const mockState = {
   dirty: false,
   saving: false,
   conflict: false,
+  fileMissing: false,
   save: vi.fn(),
   loadDocument: vi.fn(),
   dismissConflict: vi.fn(),
@@ -37,6 +38,7 @@ beforeEach(() => {
   mockState.dirty = false;
   mockState.saving = false;
   mockState.conflict = false;
+  mockState.fileMissing = false;
   mockState.save.mockReset();
   mockState.loadDocument.mockReset();
   mockState.dismissConflict.mockReset();
@@ -108,4 +110,37 @@ test("hides the conflict message when there is no conflict", () => {
   expect(
     screen.queryByText("This file changed outside the app. Your draft has not been overwritten."),
   ).not.toBeInTheDocument();
+});
+
+test("shows the missing-on-disk message while the file is missing", () => {
+  mockState.fileMissing = true;
+  render(<EditorToolbar />);
+
+  expect(screen.getByRole("status")).toHaveTextContent(
+    "This file is missing on disk. Saving is disabled.",
+  );
+});
+
+test("hides the missing-on-disk message when the file is present", () => {
+  render(<EditorToolbar />);
+
+  expect(screen.queryByRole("status")).not.toBeInTheDocument();
+});
+
+test("Save button is disabled while the file is missing on disk even when dirty", () => {
+  mockState.dirty = true;
+  mockState.fileMissing = true;
+  render(<EditorToolbar />);
+
+  expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+});
+
+test("Ctrl+S does not save while the file is missing on disk", () => {
+  mockState.dirty = true;
+  mockState.fileMissing = true;
+  render(<EditorToolbar />);
+
+  fireEvent.keyDown(window, { key: "s", code: "KeyS", ctrlKey: true });
+
+  expect(mockState.save).not.toHaveBeenCalled();
 });

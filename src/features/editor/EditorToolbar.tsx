@@ -13,6 +13,7 @@ export function EditorToolbar() {
   const dirty = useEditorStore((state) => state.dirty);
   const saving = useEditorStore((state) => state.saving);
   const conflict = useEditorStore((state) => state.conflict);
+  const fileMissing = useEditorStore((state) => state.fileMissing);
   const save = useEditorStore((state) => state.save);
   const loadDocument = useEditorStore((state) => state.loadDocument);
   const dismissConflict = useEditorStore((state) => state.dismissConflict);
@@ -21,12 +22,12 @@ export function EditorToolbar() {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
         event.preventDefault();
-        void save();
+        if (!fileMissing) void save();
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [save]);
+  }, [save, fileMissing]);
 
   if (document === null) return null;
 
@@ -41,11 +42,16 @@ export function EditorToolbar() {
           ● Unsaved
         </span>
       )}
+      {fileMissing && (
+        <p role="status" className="editor-toolbar__missing">
+          This file is missing on disk. Saving is disabled.
+        </p>
+      )}
       <button
         type="button"
         className="editor-toolbar__save"
         onClick={() => void save()}
-        disabled={!dirty || saving}
+        disabled={!dirty || saving || fileMissing}
       >
         Save
       </button>

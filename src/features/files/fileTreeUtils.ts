@@ -15,3 +15,11 @@ export function sortTreeNodes(nodes: FileTreeNode[]): FileTreeNode[] {
     }))
     .sort(compareNodes);
 }
+
+export function containsMarkdownPath(nodes: readonly FileTreeNode[], path: string): boolean {
+  return nodes.some(
+    (node) =>
+      (node.kind === "markdown" && node.path === path) ||
+      (node.children !== undefined && containsMarkdownPath(node.children, path)),
+  );
+}

@@ -86,3 +86,31 @@ test("refreshTree rescans the current root", async () => {
   expect(scanRootMock).toHaveBeenCalledWith("C:\\notes");
   expect(useWorkspaceStore.getState().tree).toEqual(sampleTree);
 });
+
+test("refresh replaces a scanned tree while keeping the same root", async () => {
+  const treeA: FileTreeNode[] = [{ name: "a.md", path: "C:\\notes\\a.md", kind: "markdown" }];
+  const treeB: FileTreeNode[] = [{ name: "b.md", path: "C:\\notes\\b.md", kind: "markdown" }];
+  openMock.mockResolvedValue("C:\\notes");
+  scanRootMock.mockResolvedValueOnce(treeA).mockResolvedValueOnce(treeB);
+
+  await useWorkspaceStore.getState().openRoot();
+  await useWorkspaceStore.getState().refreshTree();
+
+  expect(scanRootMock).toHaveBeenCalledTimes(2);
+  expect(scanRootMock).toHaveBeenNthCalledWith(2, "C:\\notes");
+  expect(useWorkspaceStore.getState().tree).toEqual(treeB);
+  expect(useWorkspaceStore.getState().rootPath).toBe("C:\\notes");
+  expect(useWorkspaceStore.getState().error).toBeNull();
+});
+
+test("refresh error keeps the old tree visible and records the error", async () => {
+  const treeA: FileTreeNode[] = [{ name: "a.md", path: "C:\\notes\\a.md", kind: "markdown" }];
+  useWorkspaceStore.setState({ rootPath: "C:\\notes", tree: treeA });
+  scanRootMock.mockRejectedValue(new Error("refresh failed"));
+
+  await useWorkspaceStore.getState().refreshTree();
+
+  expect(useWorkspaceStore.getState().tree).toEqual(treeA);
+  expect(useWorkspaceStore.getState().rootPath).toBe("C:\\notes");
+  expect(useWorkspaceStore.getState().error).toBe("refresh failed");
+});

@@ -1,4 +1,7 @@
+import { useEffect } from "react";
+
 import { FileTree } from "../features/files/FileTree";
+import { containsMarkdownPath } from "../features/files/fileTreeUtils";
 import { MarkdownSourceEditor } from "../features/editor/MarkdownSourceEditor";
 import { EditorToolbar } from "../features/editor/EditorToolbar";
 import { UnsavedChangesDialog } from "../features/editor/UnsavedChangesDialog";
@@ -14,6 +17,7 @@ function fileNameOf(path: string): string {
 export function App() {
   const rootPath = useWorkspaceStore((state) => state.rootPath);
   const tree = useWorkspaceStore((state) => state.tree);
+  const refreshTree = useWorkspaceStore((state) => state.refreshTree);
 
   const activeDocument = useEditorStore((state) => state.document);
   const pendingPath = useEditorStore((state) => state.pendingPath);
@@ -25,10 +29,16 @@ export function App() {
   const discardAndOpenPending = useEditorStore((state) => state.discardAndOpenPending);
   const cancelOpenRequest = useEditorStore((state) => state.cancelOpenRequest);
   const setDraft = useEditorStore((state) => state.setDraft);
+  const setFileMissing = useEditorStore((state) => state.setFileMissing);
 
   const handleOpenMarkdown = (path: string) => {
     requestOpenDocument(path);
   };
+
+  useEffect(() => {
+    const missing = activeDocument !== null && !containsMarkdownPath(tree, activeDocument.path);
+    setFileMissing(missing);
+  }, [tree, activeDocument, setFileMissing]);
 
   if (rootPath === null) {
     return (
@@ -48,6 +58,11 @@ export function App() {
         <WorkspacePicker />
       </header>
       <aside aria-label="File explorer">
+        <div className="file-explorer__header">
+          <button type="button" onClick={() => void refreshTree()}>
+            Refresh
+          </button>
+        </div>
         <FileTree tree={tree} rootPath={rootPath} onOpenMarkdown={handleOpenMarkdown} />
       </aside>
       <section aria-label="Editor">

@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import userEvent from "@testing-library/user-event";
 import { beforeAll, beforeEach, expect, test, vi } from "vitest";
@@ -7,6 +7,7 @@ import { App } from "./App";
 import { readMarkdownFile, saveMarkdownDocument } from "../features/files/fileApi";
 import type { FileTreeNode, TextDocumentSnapshot } from "../features/files/fileTypes";
 import { useEditorStore } from "../features/editor/editorStore";
+import { scanRoot } from "../features/workspace/workspaceApi";
 import { useWorkspaceStore } from "../features/workspace/workspaceStore";
 
 vi.mock("../features/files/fileApi", () => ({
@@ -14,8 +15,13 @@ vi.mock("../features/files/fileApi", () => ({
   saveMarkdownDocument: vi.fn(),
 }));
 
+vi.mock("../features/workspace/workspaceApi", () => ({
+  scanRoot: vi.fn(),
+}));
+
 const readMarkdownFileMock = vi.mocked(readMarkdownFile);
 const saveMarkdownDocumentMock = vi.mocked(saveMarkdownDocument);
+const scanRootMock = vi.mocked(scanRoot);
 
 const A_PATH = "C:\\notes\\a.md";
 const B_PATH = "C:\\notes\\b.md";
@@ -65,6 +71,7 @@ beforeAll(() => {
 beforeEach(() => {
   readMarkdownFileMock.mockReset();
   saveMarkdownDocumentMock.mockReset();
+  scanRootMock.mockReset();
   readMarkdownFileMock.mockImplementation(async (path: string) => snapshot(path, `# ${path}\n`));
   useEditorStore.setState({
     document: null,
@@ -75,6 +82,7 @@ beforeEach(() => {
     conflict: false,
     error: null,
     pendingPath: null,
+    fileMissing: false,
   });
   useWorkspaceStore.setState({ rootPath: "C:\\notes", tree, error: null });
 });
@@ -218,4 +226,73 @@ test("clicking the already-open dirty file is a no-op that preserves the draft",
   expect(useEditorStore.getState().draft).toBe("# A edited\n");
   expect(useEditorStore.getState().dirty).toBe(true);
   expect(readMarkdownFileMock).toHaveBeenCalledTimes(1);
+});
+
+test("Refresh rescans the workspace and shows the updated tree", async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  scanRootMock.mockResolvedValue([{ name: "c.md", path: "C:\\notes\\c.md", kind: "markdown" }]);
+
+  await user.click(screen.getByRole("button", { name: "Refresh" }));
+
+  await waitFor(() => expect(screen.getByRole("treeitem", { name: "c.md" })).toBeInTheDocument());
+  expect(screen.queryByRole("treeitem", { name: "a.md" })).not.toBeInTheDocument();
+  expect(useWorkspaceStore.getState().rootPath).toBe("C:\\notes");
+});
+
+test("refresh that removes the open clean file shows missing state without closing it", async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  await user.click(screen.getByRole("treeitem", { name: "a.md" }));
+  await waitFor(() => expect(useEditorStore.getState().document?.path).toBe(A_PATH));
+  scanRootMock.mockResolvedValue([{ name: "b.md", path: B_PATH, kind: "markdown" }]);
+
+  await user.click(screen.getByRole("button", { name: "Refresh" }));
+
+  await waitFor(() => expect(useEditorStore.getState().fileMissing).toBe(true));
+  expect(screen.getByRole("status")).toHaveTextContent(
+    "This file is missing on disk. Saving is disabled.",
+  );
+  expect(useEditorStore.getState().document?.path).toBe(A_PATH);
+  expect(useEditorStore.getState().draft).toBe(`# ${A_PATH}\n`);
+  expect(useEditorStore.getState().dirty).toBe(false);
+  expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  expect(saveMarkdownDocumentMock).not.toHaveBeenCalled();
+});
+
+test("refresh that removes the open dirty file preserves the draft and blocks saving", async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  await openDirtyA(user);
+  scanRootMock.mockResolvedValue([{ name: "b.md", path: B_PATH, kind: "markdown" }]);
+
+  await user.click(screen.getByRole("button", { name: "Refresh" }));
+
+  await waitFor(() => expect(useEditorStore.getState().fileMissing).toBe(true));
+  expect(useEditorStore.getState().draft).toBe("# A edited\n");
+  expect(useEditorStore.getState().dirty).toBe(true);
+  expect(useEditorStore.getState().document?.path).toBe(A_PATH);
+  expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+
+  fireEvent.keyDown(window, { key: "s", code: "KeyS", ctrlKey: true });
+
+  expect(saveMarkdownDocumentMock).not.toHaveBeenCalled();
+  expect(useEditorStore.getState().draft).toBe("# A edited\n");
+});
+
+test("missing file state clears after the file reappears in a refreshed tree", async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  await user.click(screen.getByRole("treeitem", { name: "a.md" }));
+  await waitFor(() => expect(useEditorStore.getState().document?.path).toBe(A_PATH));
+  scanRootMock.mockResolvedValue([{ name: "b.md", path: B_PATH, kind: "markdown" }]);
+  await user.click(screen.getByRole("button", { name: "Refresh" }));
+  await waitFor(() => expect(useEditorStore.getState().fileMissing).toBe(true));
+
+  scanRootMock.mockResolvedValue(tree);
+  await user.click(screen.getByRole("button", { name: "Refresh" }));
+
+  await waitFor(() => expect(useEditorStore.getState().fileMissing).toBe(false));
+  expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  expect(useEditorStore.getState().document?.path).toBe(A_PATH);
 });
