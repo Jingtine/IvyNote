@@ -180,6 +180,45 @@ test("saving mount exclusions calls the store action with the parsed list", asyn
   );
 });
 
+test("clearing a mount override saves an empty list and shows the inherited default as effective", async () => {
+  const user = userEvent.setup();
+  useWorkspaceStore.setState({
+    workspace: makeWorkspace({
+      mounts: [
+        { path: "C:\\notes", permission: "read-write", exclusions: ["tmp"] },
+        { path: "D:\\archive", permission: "excluded" },
+      ],
+    }),
+    treeByMount: {},
+    error: null,
+  });
+  updateMountExclusionsApiMock.mockResolvedValue(
+    makeWorkspace({
+      mounts: [
+        { path: "C:\\notes", permission: "read-write" },
+        { path: "D:\\archive", permission: "excluded" },
+      ],
+    }),
+  );
+  render(<MountManager onRemoveMount={() => {}} />);
+
+  const input = screen.getByRole("textbox", { name: "Exclusions for C:\\notes" });
+  expect(input).toHaveValue("tmp");
+  expect(screen.getByText("Effective: tmp")).toBeInTheDocument();
+
+  await user.clear(input);
+  await user.click(screen.getByRole("button", { name: "Save exclusions for C:\\notes" }));
+
+  await waitFor(() =>
+    expect(updateMountExclusionsApiMock).toHaveBeenCalledWith("ws-1", "C:\\notes", []),
+  );
+  expect(
+    screen.getAllByText(
+      "Effective: .git, node_modules, dist, build, target, .venv, venv, .cache, coverage",
+    ),
+  ).toHaveLength(2);
+});
+
 test("saving workspace default exclusions calls the store action", async () => {
   const user = userEvent.setup();
   updateWorkspaceExclusionsApiMock.mockResolvedValue(makeWorkspace());

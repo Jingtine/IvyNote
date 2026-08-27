@@ -130,7 +130,13 @@ pub fn update_mount_exclusions(
             workspace_id: workspace_id.to_string(),
             path: path.to_string(),
         })?;
-    mount.exclusions = Some(exclusions.to_vec());
+    // An empty list means "clear the override" so the mount inherits the
+    // workspace default (or the built-in defaults) again.
+    if exclusions.is_empty() {
+        mount.exclusions = None;
+    } else {
+        mount.exclusions = Some(exclusions.to_vec());
+    }
     save_workspace(app_data_dir, &config)?;
     Ok(config)
 }
@@ -334,6 +340,28 @@ mod tests {
             loaded.mounts[0].exclusions.as_deref(),
             Some(&["tmp".to_string()][..])
         );
+    }
+
+    #[test]
+    fn update_mount_exclusions_with_empty_clears_override() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut ws = create_workspace(tmp.path(), "WS").unwrap();
+        ws.mounts.push(MountConfig {
+            path: "D:\\Notes".into(),
+            permission: MountPermission::ReadWrite,
+            exclusions: Some(vec!["tmp".to_string()]),
+        });
+        save_workspace(tmp.path(), &ws).unwrap();
+
+        let updated = update_mount_exclusions(tmp.path(), &ws.id, "D:\\Notes", &[]).unwrap();
+
+        assert_eq!(updated.mounts[0].exclusions, None);
+        assert_eq!(
+            effective_exclusions(&updated, &updated.mounts[0]),
+            default_exclusions()
+        );
+        let loaded = load_workspace(tmp.path(), &ws.id).unwrap();
+        assert_eq!(loaded.mounts[0].exclusions, None);
     }
 
     #[test]

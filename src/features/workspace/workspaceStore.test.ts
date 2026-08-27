@@ -342,6 +342,44 @@ test("updateMountExclusions persists via the API and rescans only the mount", as
   expect(state.treeByMount["D:\\wiki"]).toEqual(wikiTree);
 });
 
+test("updateMountExclusions with an empty list clears the override and rescans with inherited defaults", async () => {
+  const config = makeWorkspace({
+    mounts: [
+      { path: "C:\\notes", permission: "read-write", exclusions: ["tmp"] },
+      { path: "D:\\wiki", permission: "read-only" },
+      { path: "D:\\archive", permission: "excluded" },
+    ],
+  });
+  useWorkspaceStore.setState({
+    workspace: config,
+    treeByMount: { "C:\\notes": notesTree, "D:\\wiki": wikiTree },
+  });
+  const updated = makeWorkspace({
+    mounts: [
+      { path: "C:\\notes", permission: "read-write" },
+      { path: "D:\\wiki", permission: "read-only" },
+      { path: "D:\\archive", permission: "excluded" },
+    ],
+  });
+  updateMountExclusionsApiMock.mockResolvedValue(updated);
+  const refreshedNotes: FileTreeNode[] = [
+    { name: "a.md", path: "C:\\notes\\a.md", kind: "markdown" },
+    { name: "new.md", path: "C:\\notes\\new.md", kind: "markdown" },
+  ];
+  scanRootMock.mockResolvedValueOnce(refreshedNotes);
+
+  await useWorkspaceStore.getState().updateMountExclusions("C:\\notes", []);
+
+  expect(updateMountExclusionsApiMock).toHaveBeenCalledTimes(1);
+  expect(updateMountExclusionsApiMock).toHaveBeenCalledWith("ws-1", "C:\\notes", []);
+  expect(scanRootMock).toHaveBeenCalledTimes(1);
+  expect(scanRootMock).toHaveBeenCalledWith("C:\\notes", [".git", "node_modules"]);
+  const state = useWorkspaceStore.getState();
+  expect(state.workspace?.mounts[0].exclusions).toBeUndefined();
+  expect(state.treeByMount["C:\\notes"]).toEqual(refreshedNotes);
+  expect(state.treeByMount["D:\\wiki"]).toEqual(wikiTree);
+});
+
 test("updateWorkspaceExclusions persists and rescans all readable mounts", async () => {
   const config = makeWorkspace();
   useWorkspaceStore.setState({
