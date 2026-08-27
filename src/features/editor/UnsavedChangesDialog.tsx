@@ -1,6 +1,7 @@
 interface UnsavedChangesDialogProps {
   currentFileName: string;
   targetFileName: string;
+  blockedMessage?: string | null;
   onSaveAndOpen(): void;
   onDiscardAndOpen(): void;
   onCancel(): void;
@@ -9,6 +10,7 @@ interface UnsavedChangesDialogProps {
 export function UnsavedChangesDialog({
   currentFileName,
   targetFileName,
+  blockedMessage,
   onSaveAndOpen,
   onDiscardAndOpen,
   onCancel,
@@ -18,6 +20,11 @@ export function UnsavedChangesDialog({
       <p className="unsaved-changes-dialog__message">
         {currentFileName} has unsaved changes. Save them before opening {targetFileName}?
       </p>
+      {blockedMessage !== null && blockedMessage !== undefined && (
+        <p role="alert" className="unsaved-changes-dialog__blocked">
+          {blockedMessage}
+        </p>
+      )}
       <div className="unsaved-changes-dialog__actions">
         <button type="button" className="unsaved-changes-dialog__save" onClick={onSaveAndOpen}>
           Save and Open

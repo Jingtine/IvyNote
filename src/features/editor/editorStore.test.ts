@@ -1,6 +1,10 @@
 import { beforeEach, expect, test, vi } from "vitest";
 
-import type { SaveTextDocumentRequest, TextDocumentSnapshot } from "../files/fileTypes";
+import type {
+  SaveTextDocumentRequest,
+  SaveTextDocumentResult,
+  TextDocumentSnapshot,
+} from "../files/fileTypes";
 import { readMarkdownFile, saveMarkdownDocument } from "../files/fileApi";
 import { useEditorStore } from "./editorStore";
 
@@ -310,4 +314,59 @@ test("loading another document resets the missing-on-disk state", async () => {
   await useEditorStore.getState().loadDocument("C:\\notes\\hello.md");
 
   expect(useEditorStore.getState().fileMissing).toBe(false);
+});
+
+test("saveAndOpenPending keeps the draft and the pending request when the file is missing on disk", async () => {
+  readMarkdownFileMock.mockResolvedValueOnce(makeSnapshot());
+  await useEditorStore.getState().loadDocument("C:\\notes\\hello.md");
+  useEditorStore.getState().setDraft("# Edited\n");
+  useEditorStore.getState().setFileMissing(true);
+
+  useEditorStore.getState().requestOpenDocument("C:\\notes\\other.md");
+  expect(useEditorStore.getState().pendingPath).toBe("C:\\notes\\other.md");
+
+  await useEditorStore.getState().saveAndOpenPending();
+
+  const state = useEditorStore.getState();
+  expect(state.draft).toBe("# Edited\n");
+  expect(state.dirty).toBe(true);
+  expect(state.pendingPath).toBe("C:\\notes\\other.md");
+  expect(state.document?.path).toBe("C:\\notes\\hello.md");
+  expect(saveMarkdownDocumentMock).not.toHaveBeenCalled();
+  expect(readMarkdownFileMock).toHaveBeenCalledTimes(1);
+});
+
+test("saveAndOpenPending joins an in-flight save instead of dead-ending", async () => {
+  readMarkdownFileMock.mockResolvedValueOnce(makeSnapshot());
+  await useEditorStore.getState().loadDocument("C:\\notes\\hello.md");
+  useEditorStore.getState().setDraft("# Edited\n");
+
+  let resolveSave!: (result: SaveTextDocumentResult) => void;
+  saveMarkdownDocumentMock.mockImplementation(
+    () =>
+      new Promise<SaveTextDocumentResult>((resolve) => {
+        resolveSave = resolve;
+      }),
+  );
+
+  const inFlight = useEditorStore.getState().save();
+  expect(useEditorStore.getState().saving).toBe(true);
+
+  readMarkdownFileMock.mockResolvedValueOnce(
+    makeSnapshot({ path: "C:\\notes\\other.md", content: "# Other\n", size: 8 }),
+  );
+  useEditorStore.getState().requestOpenDocument("C:\\notes\\other.md");
+  expect(useEditorStore.getState().pendingPath).toBe("C:\\notes\\other.md");
+
+  const pending = useEditorStore.getState().saveAndOpenPending();
+
+  resolveSave({ modifiedAtMs: 1_700_000_000_500, size: 9 });
+  await inFlight;
+  await pending;
+
+  const state = useEditorStore.getState();
+  expect(state.document?.path).toBe("C:\\notes\\other.md");
+  expect(state.pendingPath).toBeNull();
+  expect(state.saving).toBe(false);
+  expect(saveMarkdownDocumentMock).toHaveBeenCalledTimes(1);
 });

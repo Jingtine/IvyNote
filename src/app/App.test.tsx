@@ -5,7 +5,11 @@ import { beforeAll, beforeEach, expect, test, vi } from "vitest";
 
 import { App } from "./App";
 import { readMarkdownFile, saveMarkdownDocument } from "../features/files/fileApi";
-import type { FileTreeNode, TextDocumentSnapshot } from "../features/files/fileTypes";
+import type {
+  FileTreeNode,
+  SaveTextDocumentResult,
+  TextDocumentSnapshot,
+} from "../features/files/fileTypes";
 import { useEditorStore } from "../features/editor/editorStore";
 import { scanRoot } from "../features/workspace/workspaceApi";
 import { useWorkspaceStore } from "../features/workspace/workspaceStore";
@@ -295,4 +299,84 @@ test("missing file state clears after the file reappears in a refreshed tree", a
   await waitFor(() => expect(useEditorStore.getState().fileMissing).toBe(false));
   expect(screen.queryByRole("status")).not.toBeInTheDocument();
   expect(useEditorStore.getState().document?.path).toBe(A_PATH);
+});
+
+test("Save and Open keeps the dialog open with an alert when the file is missing on disk", async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  await openDirtyA(user);
+  scanRootMock.mockResolvedValue([{ name: "b.md", path: B_PATH, kind: "markdown" }]);
+  await user.click(screen.getByRole("button", { name: "Refresh" }));
+  await waitFor(() => expect(useEditorStore.getState().fileMissing).toBe(true));
+
+  await user.click(screen.getByRole("treeitem", { name: "b.md" }));
+  await user.click(screen.getByRole("button", { name: "Save and Open" }));
+
+  expect(screen.getByRole("dialog", { name: "Unsaved changes" })).toBeInTheDocument();
+  expect(screen.getByRole("alert")).toHaveTextContent("missing on disk");
+  expect(useEditorStore.getState().document?.path).toBe(A_PATH);
+  expect(useEditorStore.getState().draft).toBe("# A edited\n");
+  expect(useEditorStore.getState().dirty).toBe(true);
+  expect(saveMarkdownDocumentMock).not.toHaveBeenCalled();
+  expect(readMarkdownFileMock).toHaveBeenCalledTimes(1);
+});
+
+test("Save and Open joins an in-flight save and still opens the target", async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  await openDirtyA(user);
+  let resolveSave!: (result: SaveTextDocumentResult) => void;
+  saveMarkdownDocumentMock.mockImplementation(
+    () =>
+      new Promise<SaveTextDocumentResult>((resolve) => {
+        resolveSave = resolve;
+      }),
+  );
+
+  act(() => {
+    void useEditorStore.getState().save();
+  });
+  await waitFor(() => expect(useEditorStore.getState().saving).toBe(true));
+
+  await user.click(screen.getByRole("treeitem", { name: "b.md" }));
+  expect(screen.getByRole("dialog", { name: "Unsaved changes" })).toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "Save and Open" }));
+
+  act(() => {
+    resolveSave({ modifiedAtMs: 1_700_000_000_500, size: 11 });
+  });
+
+  await waitFor(() => expect(useEditorStore.getState().document?.path).toBe(B_PATH));
+  expect(saveMarkdownDocumentMock).toHaveBeenCalledTimes(1);
+  expect(useEditorStore.getState().pendingPath).toBeNull();
+  expect(useEditorStore.getState().dirty).toBe(false);
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+});
+
+test("refresh failure shows the workspace error in an alert near the Refresh button", async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  scanRootMock.mockRejectedValue(new Error("refresh failed"));
+
+  await user.click(screen.getByRole("button", { name: "Refresh" }));
+
+  const alert = screen.getByRole("alert");
+  expect(alert).toHaveTextContent("refresh failed");
+  expect(alert).toBeInTheDocument();
+  expect(useWorkspaceStore.getState().error).toBe("refresh failed");
+});
+
+test("a later successful refresh clears the workspace error alert", async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  scanRootMock.mockRejectedValueOnce(new Error("refresh failed"));
+  await user.click(screen.getByRole("button", { name: "Refresh" }));
+  expect(screen.getByRole("alert")).toHaveTextContent("refresh failed");
+
+  scanRootMock.mockResolvedValueOnce(tree);
+  await user.click(screen.getByRole("button", { name: "Refresh" }));
+
+  expect(useWorkspaceStore.getState().error).toBeNull();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });

@@ -18,12 +18,14 @@ export function App() {
   const rootPath = useWorkspaceStore((state) => state.rootPath);
   const tree = useWorkspaceStore((state) => state.tree);
   const refreshTree = useWorkspaceStore((state) => state.refreshTree);
+  const workspaceError = useWorkspaceStore((state) => state.error);
 
   const activeDocument = useEditorStore((state) => state.document);
   const pendingPath = useEditorStore((state) => state.pendingPath);
   const draft = useEditorStore((state) => state.draft);
   const loading = useEditorStore((state) => state.loading);
   const error = useEditorStore((state) => state.error);
+  const fileMissing = useEditorStore((state) => state.fileMissing);
   const requestOpenDocument = useEditorStore((state) => state.requestOpenDocument);
   const saveAndOpenPending = useEditorStore((state) => state.saveAndOpenPending);
   const discardAndOpenPending = useEditorStore((state) => state.discardAndOpenPending);
@@ -62,6 +64,11 @@ export function App() {
           <button type="button" onClick={() => void refreshTree()}>
             Refresh
           </button>
+          {workspaceError !== null && (
+            <p role="alert" className="file-explorer__error">
+              {workspaceError}
+            </p>
+          )}
         </div>
         <FileTree tree={tree} rootPath={rootPath} onOpenMarkdown={handleOpenMarkdown} />
       </aside>
@@ -84,6 +91,11 @@ export function App() {
         <UnsavedChangesDialog
           currentFileName={fileNameOf(activeDocument.path)}
           targetFileName={fileNameOf(pendingPath)}
+          blockedMessage={
+            fileMissing
+              ? "This file is missing on disk, so saving is disabled. Your draft has been kept; choose Discard and Open to proceed without saving, or Cancel."
+              : null
+          }
           onSaveAndOpen={() => void saveAndOpenPending()}
           onDiscardAndOpen={() => void discardAndOpenPending()}
           onCancel={cancelOpenRequest}

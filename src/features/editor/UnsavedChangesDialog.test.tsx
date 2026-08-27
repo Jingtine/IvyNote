@@ -84,3 +84,26 @@ test("Cancel invokes only the cancel handler", async () => {
   expect(props.onSaveAndOpen).not.toHaveBeenCalled();
   expect(props.onDiscardAndOpen).not.toHaveBeenCalled();
 });
+
+test("renders a blocked message inside the dialog when one is provided", () => {
+  render(
+    <UnsavedChangesDialog
+      currentFileName="a.md"
+      targetFileName="b.md"
+      blockedMessage="This file is missing on disk, so saving is disabled."
+      onSaveAndOpen={vi.fn()}
+      onDiscardAndOpen={vi.fn()}
+      onCancel={vi.fn()}
+    />,
+  );
+
+  const dialog = screen.getByRole("dialog", { name: "Unsaved changes" });
+  expect(screen.getByRole("alert")).toHaveTextContent("missing on disk");
+  expect(dialog).toContainElement(screen.getByRole("alert"));
+});
+
+test("renders no blocked message when none is provided", () => {
+  renderDialog();
+
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});

@@ -13,6 +13,8 @@ function toErrorMessage(error: unknown): string {
   return String(error);
 }
 
+let savePromise: Promise<boolean> | null = null;
+
 export interface EditorState {
   document: TextDocumentSnapshot | null;
   draft: string;
@@ -80,30 +82,36 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     });
   },
   save: async () => {
-    const { document, draft, dirty, saving, fileMissing } = get();
+    const { document, draft, dirty, fileMissing } = get();
     if (document === null || !dirty) return true;
     if (fileMissing) return false;
-    if (saving) return false;
-    set({ saving: true, conflict: false });
-    try {
-      const result = await saveDocument(document, draft);
-      get().replaceSnapshot({
-        ...document,
-        content: draft,
-        modifiedAtMs: result.modifiedAtMs,
-        size: result.size,
-      });
-      set({ saving: false });
-      return true;
-    } catch (error) {
-      set({ saving: false });
-      if (isExternalModificationConflict(error)) {
-        set({ conflict: true });
-      } else {
-        set({ error: toErrorMessage(error) });
+    if (savePromise !== null) return savePromise;
+    const promise = (async (): Promise<boolean> => {
+      set({ saving: true, conflict: false });
+      try {
+        const result = await saveDocument(document, draft);
+        get().replaceSnapshot({
+          ...document,
+          content: draft,
+          modifiedAtMs: result.modifiedAtMs,
+          size: result.size,
+        });
+        set({ saving: false });
+        return true;
+      } catch (error) {
+        set({ saving: false });
+        if (isExternalModificationConflict(error)) {
+          set({ conflict: true });
+        } else {
+          set({ error: toErrorMessage(error) });
+        }
+        return false;
+      } finally {
+        savePromise = null;
       }
-      return false;
-    }
+    })();
+    savePromise = promise;
+    return promise;
   },
   dismissConflict: () => set({ conflict: false }),
   requestOpenDocument: (path) => {
@@ -116,8 +124,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     void get().loadDocument(path);
   },
   saveAndOpenPending: async () => {
-    const { pendingPath } = get();
+    const { pendingPath, fileMissing } = get();
     if (pendingPath === null) return;
+    if (fileMissing) return;
     const saved = await get().save();
     set({ pendingPath: null });
     if (!saved) return;

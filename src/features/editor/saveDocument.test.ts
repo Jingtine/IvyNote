@@ -45,6 +45,15 @@ test("buildSaveRequest uses the original snapshot metadata, not the draft", () =
   });
 });
 
+test("buildSaveRequest normalizes CRLF and lone CR line endings in the draft", () => {
+  const snapshot = makeSnapshot();
+
+  const request = buildSaveRequest(snapshot, "# Hello\r\nWorld\r\nLone\rEnd\n");
+
+  expect(request.content).toBe("# Hello\nWorld\nLone\nEnd\n");
+  expect(request.content).not.toContain("\r");
+});
+
 test("saveDocument delegates to saveMarkdownDocument with the built request", async () => {
   const snapshot = makeSnapshot();
   const result = { modifiedAtMs: 1_700_000_000_500, size: 22 };
