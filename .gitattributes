@@ -1,0 +1,8 @@
+# Line-ending control for the committed fixtures.
+
+# The CRLF fixture must be stored with Windows line endings in the repository
+# so that saving a CRLF file through the app has a reproducible byte baseline.
+tests/fixtures/crlf/*.md text eol=crlf
+
+# Everything else keeps its committed bytes unchanged.
+* -text
