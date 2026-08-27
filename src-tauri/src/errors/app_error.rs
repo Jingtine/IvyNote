@@ -8,6 +8,8 @@ pub enum AppError {
     UnsupportedEncoding { path: String },
     ExternalModificationConflict { path: String },
     Io { message: String },
+    WorkspaceNotFound { id: String },
+    InvalidWorkspaceConfig { id: String },
 }
 
 impl AppError {
@@ -41,6 +43,16 @@ impl AppError {
             AppError::Io { message } => AppErrorPayload {
                 code: "io",
                 message: message.clone(),
+                path: None,
+            },
+            AppError::WorkspaceNotFound { id } => AppErrorPayload {
+                code: "workspaceNotFound",
+                message: format!("Workspace not found: {id}"),
+                path: None,
+            },
+            AppError::InvalidWorkspaceConfig { id } => AppErrorPayload {
+                code: "invalidWorkspaceConfig",
+                message: format!("Invalid workspace config: {id}"),
                 path: None,
             },
         }
@@ -127,6 +139,28 @@ mod tests {
         let json = serde_json::to_value(&error).expect("error must serialize");
         assert_eq!(json["code"], "io");
         assert_eq!(json["message"], "disk unavailable");
+        assert!(json.get("path").is_none());
+    }
+
+    #[test]
+    fn workspace_not_found_serializes_stable_code_and_message_without_path() {
+        let error = AppError::WorkspaceNotFound {
+            id: "abc123".to_string(),
+        };
+        let json = serde_json::to_value(&error).expect("error must serialize");
+        assert_eq!(json["code"], "workspaceNotFound");
+        assert!(json["message"].as_str().unwrap().contains("abc123"));
+        assert!(json.get("path").is_none());
+    }
+
+    #[test]
+    fn invalid_workspace_config_serializes_stable_code_and_message_without_path() {
+        let error = AppError::InvalidWorkspaceConfig {
+            id: "abc123".to_string(),
+        };
+        let json = serde_json::to_value(&error).expect("error must serialize");
+        assert_eq!(json["code"], "invalidWorkspaceConfig");
+        assert!(json["message"].as_str().unwrap().contains("abc123"));
         assert!(json.get("path").is_none());
     }
 }
