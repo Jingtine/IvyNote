@@ -1,23 +1,33 @@
 import { FileTree } from "../features/files/FileTree";
 import { MarkdownSourceEditor } from "../features/editor/MarkdownSourceEditor";
 import { EditorToolbar } from "../features/editor/EditorToolbar";
+import { UnsavedChangesDialog } from "../features/editor/UnsavedChangesDialog";
 import { useEditorStore } from "../features/editor/editorStore";
 import { WorkspacePicker } from "../features/workspace/WorkspacePicker";
 import { useWorkspaceStore } from "../features/workspace/workspaceStore";
+
+function fileNameOf(path: string): string {
+  const segments = path.split(/[\\/]/);
+  return segments[segments.length - 1] ?? path;
+}
 
 export function App() {
   const rootPath = useWorkspaceStore((state) => state.rootPath);
   const tree = useWorkspaceStore((state) => state.tree);
 
   const activeDocument = useEditorStore((state) => state.document);
+  const pendingPath = useEditorStore((state) => state.pendingPath);
   const draft = useEditorStore((state) => state.draft);
   const loading = useEditorStore((state) => state.loading);
   const error = useEditorStore((state) => state.error);
-  const loadDocument = useEditorStore((state) => state.loadDocument);
+  const requestOpenDocument = useEditorStore((state) => state.requestOpenDocument);
+  const saveAndOpenPending = useEditorStore((state) => state.saveAndOpenPending);
+  const discardAndOpenPending = useEditorStore((state) => state.discardAndOpenPending);
+  const cancelOpenRequest = useEditorStore((state) => state.cancelOpenRequest);
   const setDraft = useEditorStore((state) => state.setDraft);
 
   const handleOpenMarkdown = (path: string) => {
-    void loadDocument(path);
+    requestOpenDocument(path);
   };
 
   if (rootPath === null) {
@@ -55,6 +65,15 @@ export function App() {
           </>
         )}
       </section>
+      {activeDocument !== null && pendingPath !== null && (
+        <UnsavedChangesDialog
+          currentFileName={fileNameOf(activeDocument.path)}
+          targetFileName={fileNameOf(pendingPath)}
+          onSaveAndOpen={() => void saveAndOpenPending()}
+          onDiscardAndOpen={() => void discardAndOpenPending()}
+          onCancel={cancelOpenRequest}
+        />
+      )}
     </main>
   );
 }

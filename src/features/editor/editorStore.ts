@@ -21,11 +21,17 @@ export interface EditorState {
   saving: boolean;
   conflict: boolean;
   error: string | null;
+  pendingPath: string | null;
   loadDocument(path: string): Promise<void>;
   setDraft(value: string): void;
   replaceSnapshot(snapshot: TextDocumentSnapshot): void;
-  save(): Promise<void>;
+  /** Returns true when the draft is safely persisted (or there was nothing to save). */
+  save(): Promise<boolean>;
   dismissConflict(): void;
+  requestOpenDocument(path: string): void;
+  saveAndOpenPending(): Promise<void>;
+  discardAndOpenPending(): Promise<void>;
+  cancelOpenRequest(): void;
 }
 
 export const useEditorStore = create<EditorState>((set, get) => ({
@@ -36,6 +42,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   saving: false,
   conflict: false,
   error: null,
+  pendingPath: null,
   loadDocument: async (path) => {
     set({ loading: true, error: null, conflict: false });
     try {
@@ -70,7 +77,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
   save: async () => {
     const { document, draft, dirty, saving } = get();
-    if (document === null || !dirty || saving) return;
+    if (document === null || !dirty) return true;
+    if (saving) return false;
     set({ saving: true, conflict: false });
     try {
       const result = await saveDocument(document, draft);
@@ -81,6 +89,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         size: result.size,
       });
       set({ saving: false });
+      return true;
     } catch (error) {
       set({ saving: false });
       if (isExternalModificationConflict(error)) {
@@ -88,7 +97,32 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       } else {
         set({ error: toErrorMessage(error) });
       }
+      return false;
     }
   },
   dismissConflict: () => set({ conflict: false }),
+  requestOpenDocument: (path) => {
+    const { document, dirty } = get();
+    if (document !== null && path === document.path) return;
+    if (dirty) {
+      set({ pendingPath: path });
+      return;
+    }
+    void get().loadDocument(path);
+  },
+  saveAndOpenPending: async () => {
+    const { pendingPath } = get();
+    if (pendingPath === null) return;
+    const saved = await get().save();
+    set({ pendingPath: null });
+    if (!saved) return;
+    await get().loadDocument(pendingPath);
+  },
+  discardAndOpenPending: async () => {
+    const { pendingPath } = get();
+    if (pendingPath === null) return;
+    set({ pendingPath: null });
+    await get().loadDocument(pendingPath);
+  },
+  cancelOpenRequest: () => set({ pendingPath: null }),
 }));

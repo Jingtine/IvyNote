@@ -43,6 +43,7 @@ beforeEach(() => {
     error: null,
     saving: false,
     conflict: false,
+    pendingPath: null,
   });
 });
 
