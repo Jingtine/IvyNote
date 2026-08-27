@@ -42,16 +42,16 @@ export function App() {
         <FileTree tree={tree} rootPath={rootPath} onOpenMarkdown={handleOpenMarkdown} />
       </aside>
       <section aria-label="Editor">
+        {error !== null && (
+          <p role="alert" className="editor-error">
+            {error}
+          </p>
+        )}
         {activeDocument === null ? (
           loading ? <p>Loading document…</p> : <p>No document open. Select a Markdown file.</p>
         ) : (
           <>
             <EditorToolbar document={activeDocument} dirty={dirty} />
-            {error !== null && (
-              <p role="alert" className="editor-error">
-                {error}
-              </p>
-            )}
             <MarkdownSourceEditor value={draft} onChange={setDraft} />
           </>
         )}

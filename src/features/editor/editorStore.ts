@@ -46,10 +46,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
   setDraft: (value) => {
     const document = get().document;
-    set({
-      draft: value,
-      dirty: document !== null && value !== normalizeContent(document.content),
-    });
+    const dirty = document !== null && value !== normalizeContent(document.content);
+    if (dirty) {
+      set({ draft: value, dirty, error: null });
+    } else {
+      set({ draft: value, dirty });
+    }
   },
   replaceSnapshot: (snapshot) => {
     set({

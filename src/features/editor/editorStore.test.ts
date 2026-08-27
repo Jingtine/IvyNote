@@ -107,3 +107,30 @@ test("failed load preserves the previous document and exposes the error", async 
   expect(useEditorStore.getState().loading).toBe(false);
   expect(useEditorStore.getState().error).toBe("read failed");
 });
+
+test("editing after a failed load clears the error", async () => {
+  readMarkdownFileMock.mockResolvedValueOnce(makeSnapshot());
+  await useEditorStore.getState().loadDocument("C:\\notes\\hello.md");
+
+  readMarkdownFileMock.mockRejectedValueOnce(new Error("read failed"));
+  await useEditorStore.getState().loadDocument("C:\\notes\\missing.md");
+  expect(useEditorStore.getState().error).toBe("read failed");
+
+  useEditorStore.getState().setDraft("# Hello there\n");
+
+  expect(useEditorStore.getState().error).toBeNull();
+  expect(useEditorStore.getState().dirty).toBe(true);
+});
+
+test("setDraft with content identical to the document keeps the error", async () => {
+  readMarkdownFileMock.mockResolvedValueOnce(makeSnapshot());
+  await useEditorStore.getState().loadDocument("C:\\notes\\hello.md");
+
+  readMarkdownFileMock.mockRejectedValueOnce(new Error("read failed"));
+  await useEditorStore.getState().loadDocument("C:\\notes\\missing.md");
+
+  useEditorStore.getState().setDraft("# Hello\n");
+
+  expect(useEditorStore.getState().dirty).toBe(false);
+  expect(useEditorStore.getState().error).toBe("read failed");
+});
