@@ -21,7 +21,7 @@ Concretely, in v0.1:
 - The commands (`src-tauri/src/commands/workspace.rs`, `src-tauri/src/commands/files.rs`) are thin delegation only; all logic lives in the Rust services:
   - Scanner (`src-tauri/src/filesystem/scanner.rs`) canonicalizes the root once, rejects non-directory roots, skips symlinked directories, and never reads file contents.
   - Reader (`src-tauri/src/filesystem/reader.rs`) and writer (`src-tauri/src/filesystem/writer.rs`) enforce the command-boundary rule that only `.md` paths (case-insensitive) may be read or written; anything else is rejected as `InvalidPath`.
-- The Tauri capability file (`src-tauri/capabilities/default.json`) grants only `core:default`. No Tauri filesystem plugin (`tauri-plugin-fs`) is present on either side of the boundary, so the webview has no direct file read/write capability to misuse.
+- The Tauri capability file (`src-tauri/capabilities/default.json`) grants `["core:default", "dialog:default"]`. The `dialog:default` permission grants only OS-native pick dialogs (Open Folder / Open / Save), which return a chosen path string to the caller — no filesystem read or write. No Tauri filesystem plugin (`tauri-plugin-fs`) is registered and no `fs:*` capability is granted, so the webview has no direct file read/write capability to misuse.
 - The one additional plugin the UI uses is `@tauri-apps/plugin-dialog` for the native "Open Folder" picker. It only returns a path string chosen by the user; all scanning and I/O for that path still go through the Rust commands above.
 
 ## Alternatives
