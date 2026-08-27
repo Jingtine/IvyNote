@@ -3,7 +3,7 @@ import { beforeEach, expect, test, vi } from "vitest";
 
 import type { FileTreeNode } from "../files/fileTypes";
 import type { WorkspaceConfig } from "./workspaceConfig";
-import { createWorkspace, listWorkspaces, openWorkspace, scanRoot } from "./workspaceApi";
+import { createWorkspace, listRecentWorkspaces, listWorkspaces, openWorkspace, scanRoot } from "./workspaceApi";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
@@ -82,6 +82,16 @@ test("listWorkspaces invokes list_workspaces with no arguments", async () => {
   expect(invokeMock).toHaveBeenCalledTimes(1);
   expect(invokeMock).toHaveBeenCalledWith("list_workspaces");
   expect(result).toEqual([]);
+});
+
+test("listRecentWorkspaces invokes list_recent_workspaces and returns recent ids", async () => {
+  invokeMock.mockResolvedValue(["ws-2", "ws-1"]);
+
+  const result = await listRecentWorkspaces();
+
+  expect(invokeMock).toHaveBeenCalledTimes(1);
+  expect(invokeMock).toHaveBeenCalledWith("list_recent_workspaces");
+  expect(result).toEqual(["ws-2", "ws-1"]);
 });
 
 test("openWorkspace invokes open_workspace with the id argument shape", async () => {

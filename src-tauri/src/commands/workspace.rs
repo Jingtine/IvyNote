@@ -37,6 +37,11 @@ pub fn list_workspaces(app: tauri::AppHandle) -> Result<Vec<WorkspaceConfig>, Ap
 }
 
 #[tauri::command]
+pub fn list_recent_workspaces(app: tauri::AppHandle) -> Result<Vec<String>, AppError> {
+    recent::load_recent(&app_data_dir(&app)?)
+}
+
+#[tauri::command]
 pub fn open_workspace(id: String, app: tauri::AppHandle) -> Result<WorkspaceConfig, AppError> {
     let dir = app_data_dir(&app)?;
     let config = config::load_workspace(&dir, &id)?;

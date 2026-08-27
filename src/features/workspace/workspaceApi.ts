@@ -17,6 +17,10 @@ export async function listWorkspaces(): Promise<WorkspaceConfig[]> {
   return invoke<WorkspaceConfig[]>("list_workspaces");
 }
 
+export async function listRecentWorkspaces(): Promise<string[]> {
+  return invoke<string[]>("list_recent_workspaces");
+}
+
 export async function openWorkspace(id: string): Promise<WorkspaceConfig> {
   return invoke<WorkspaceConfig>("open_workspace", { id });
 }

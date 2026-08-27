@@ -11,6 +11,7 @@ pub fn run() {
             commands::workspace::scan_root,
             commands::workspace::create_workspace,
             commands::workspace::list_workspaces,
+            commands::workspace::list_recent_workspaces,
             commands::workspace::open_workspace,
             commands::files::read_markdown_file,
             commands::files::save_markdown_file,
