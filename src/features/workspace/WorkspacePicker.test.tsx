@@ -5,27 +5,27 @@ import { expect, test, vi } from "vitest";
 import { WorkspacePicker } from "./WorkspacePicker";
 
 const mockState = {
-  rootPath: null as string | null,
-  openRoot: vi.fn(),
+  workspace: null as { name: string } | null,
+  switchToWelcome: vi.fn(),
 };
 
 vi.mock("./workspaceStore", () => ({
   useWorkspaceStore: (selector: (state: typeof mockState) => unknown) => selector(mockState),
 }));
 
-test("Open Folder button calls openRoot", async () => {
+test("Switch Workspace button calls switchToWelcome", async () => {
   const user = userEvent.setup();
   render(<WorkspacePicker />);
 
-  await user.click(screen.getByRole("button", { name: "Open Folder" }));
+  await user.click(screen.getByRole("button", { name: "Switch Workspace" }));
 
-  expect(mockState.openRoot).toHaveBeenCalledTimes(1);
+  expect(mockState.switchToWelcome).toHaveBeenCalledTimes(1);
 });
 
-test("shows the selected root path when one is set", () => {
-  mockState.rootPath = "C:\\notes";
+test("shows the workspace name when one is active", () => {
+  mockState.workspace = { name: "Personal" };
   render(<WorkspacePicker />);
 
-  expect(screen.getByText("C:\\notes")).toBeInTheDocument();
-  mockState.rootPath = null;
+  expect(screen.getByText("Personal")).toBeInTheDocument();
+  mockState.workspace = null;
 });

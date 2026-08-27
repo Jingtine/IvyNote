@@ -1,15 +1,15 @@
 import { useWorkspaceStore } from "./workspaceStore";
 
 export function WorkspacePicker() {
-  const rootPath = useWorkspaceStore((state) => state.rootPath);
-  const openRoot = useWorkspaceStore((state) => state.openRoot);
+  const workspace = useWorkspaceStore((state) => state.workspace);
+  const switchToWelcome = useWorkspaceStore((state) => state.switchToWelcome);
 
   return (
     <div>
-      <button type="button" onClick={() => void openRoot()}>
-        Open Folder
+      <button type="button" onClick={() => switchToWelcome()}>
+        Switch Workspace
       </button>
-      {rootPath !== null ? <p aria-label="Selected root path">{rootPath}</p> : null}
+      {workspace !== null ? <p aria-label="Selected workspace">{workspace.name}</p> : null}
     </div>
   );
 }

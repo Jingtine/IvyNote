@@ -88,14 +88,23 @@ beforeEach(() => {
     pendingPath: null,
     fileMissing: false,
   });
-  useWorkspaceStore.setState({ rootPath: "C:\\notes", tree, error: null });
+  useWorkspaceStore.setState({
+    workspace: {
+      schemaVersion: 1,
+      id: "ws-1",
+      name: "Personal",
+      mounts: [{ path: "C:\\notes", permission: "read-write" }],
+    },
+    treeByMount: { "C:\\notes": tree },
+    error: null,
+  });
 });
 
 test("renders the Local Knowledge IDE shell", () => {
-  useWorkspaceStore.setState({ rootPath: null, tree: [] });
+  useWorkspaceStore.setState({ workspace: null, treeByMount: {}, error: null });
   render(<App />);
   expect(screen.getByRole("application", { name: "Local Knowledge IDE" })).toBeInTheDocument();
-  expect(screen.getByText("Open a local folder to begin")).toBeInTheDocument();
+  expect(screen.getByText("No workspace selected")).toBeInTheDocument();
 });
 
 test("renders the load error when the first document load fails without an open document", async () => {
@@ -241,7 +250,9 @@ test("Refresh rescans the workspace and shows the updated tree", async () => {
 
   await waitFor(() => expect(screen.getByRole("treeitem", { name: "c.md" })).toBeInTheDocument());
   expect(screen.queryByRole("treeitem", { name: "a.md" })).not.toBeInTheDocument();
-  expect(useWorkspaceStore.getState().rootPath).toBe("C:\\notes");
+  expect(useWorkspaceStore.getState().treeByMount["C:\\notes"]).toEqual([
+    { name: "c.md", path: "C:\\notes\\c.md", kind: "markdown" },
+  ]);
 });
 
 test("refresh that removes the open clean file shows missing state without closing it", async () => {

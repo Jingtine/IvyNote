@@ -1,116 +1,274 @@
-import { open } from "@tauri-apps/plugin-dialog";
 import { beforeEach, expect, test, vi } from "vitest";
 
 import type { FileTreeNode } from "../files/fileTypes";
-import { scanRoot } from "./workspaceApi";
+import type { WorkspaceConfig } from "./workspaceConfig";
+import {
+  createWorkspace as createWorkspaceApi,
+  listWorkspaces,
+  openWorkspace as openWorkspaceApi,
+  scanRoot,
+} from "./workspaceApi";
 import { useWorkspaceStore } from "./workspaceStore";
 
-vi.mock("@tauri-apps/plugin-dialog", () => ({
-  open: vi.fn(),
-}));
-
 vi.mock("./workspaceApi", () => ({
+  createWorkspace: vi.fn(),
+  listWorkspaces: vi.fn(),
+  openWorkspace: vi.fn(),
   scanRoot: vi.fn(),
 }));
 
-const openMock = vi.mocked(open);
+const createWorkspaceApiMock = vi.mocked(createWorkspaceApi);
+const listWorkspacesMock = vi.mocked(listWorkspaces);
+const openWorkspaceApiMock = vi.mocked(openWorkspaceApi);
 const scanRootMock = vi.mocked(scanRoot);
 
-const sampleTree: FileTreeNode[] = [
-  {
-    name: "notes",
-    path: "C:\\notes",
-    kind: "directory",
-    children: [{ name: "hello.md", path: "C:\\notes\\hello.md", kind: "markdown" }],
-  },
+function makeWorkspace(overrides: Partial<WorkspaceConfig> = {}): WorkspaceConfig {
+  return {
+    schemaVersion: 1,
+    id: "ws-1",
+    name: "Personal",
+    mounts: [
+      { path: "C:\\notes", permission: "read-write" },
+      { path: "D:\\wiki", permission: "read-only" },
+      { path: "D:\\archive", permission: "excluded" },
+    ],
+    exclusions: [".git", "node_modules"],
+    ...overrides,
+  };
+}
+
+const notesTree: FileTreeNode[] = [{ name: "a.md", path: "C:\\notes\\a.md", kind: "markdown" }];
+const wikiTree: FileTreeNode[] = [{ name: "b.md", path: "D:\\wiki\\b.md", kind: "markdown" }];
+const archiveTree: FileTreeNode[] = [
+  { name: "old.md", path: "D:\\archive\\old.md", kind: "markdown" },
 ];
 
 beforeEach(() => {
-  openMock.mockReset();
+  createWorkspaceApiMock.mockReset();
+  listWorkspacesMock.mockReset();
+  openWorkspaceApiMock.mockReset();
   scanRootMock.mockReset();
-  useWorkspaceStore.setState({ rootPath: null, tree: [], error: null });
+  useWorkspaceStore.setState({ workspace: null, treeByMount: {}, error: null });
 });
 
-test("initial root is null", () => {
-  expect(useWorkspaceStore.getInitialState().rootPath).toBeNull();
+test("initial state has no workspace", () => {
+  expect(useWorkspaceStore.getInitialState().workspace).toBeNull();
+  expect(useWorkspaceStore.getInitialState().treeByMount).toEqual({});
+  expect(useWorkspaceStore.getInitialState().error).toBeNull();
 });
 
-test("selecting a folder stores the path", async () => {
-  openMock.mockResolvedValue("C:\\notes");
-  scanRootMock.mockResolvedValue(sampleTree);
+test("createWorkspace sets the workspace name and populates the initial mount tree", async () => {
+  const created: WorkspaceConfig = { schemaVersion: 1, id: "ws-new", name: "Study", mounts: [] };
+  createWorkspaceApiMock.mockResolvedValue(created);
+  scanRootMock.mockResolvedValue(notesTree);
 
-  await useWorkspaceStore.getState().openRoot();
+  await useWorkspaceStore.getState().createWorkspace("Study", "C:\\notes");
 
-  expect(useWorkspaceStore.getState().rootPath).toBe("C:\\notes");
+  expect(createWorkspaceApiMock).toHaveBeenCalledTimes(1);
+  expect(createWorkspaceApiMock).toHaveBeenCalledWith("Study");
+  expect(scanRootMock).toHaveBeenCalledWith(
+    "C:\\notes",
+    [".git", "node_modules", "dist", "build", "target", ".venv", "venv", ".cache", "coverage"],
+  );
+  const state = useWorkspaceStore.getState();
+  expect(state.workspace?.id).toBe("ws-new");
+  expect(state.workspace?.name).toBe("Study");
+  expect(state.workspace?.mounts).toEqual([
+    { path: "C:\\notes", permission: "read-write" },
+  ]);
+  expect(state.treeByMount["C:\\notes"]).toEqual(notesTree);
+  expect(state.error).toBeNull();
 });
 
-test("scanner result becomes the current tree", async () => {
-  openMock.mockResolvedValue("C:\\notes");
-  scanRootMock.mockResolvedValue(sampleTree);
-
-  await useWorkspaceStore.getState().openRoot();
-
-  expect(scanRootMock).toHaveBeenCalledWith("C:\\notes");
-  expect(useWorkspaceStore.getState().tree).toEqual(sampleTree);
-});
-
-test("cancelling folder dialog does not mutate state", async () => {
-  useWorkspaceStore.setState({ rootPath: "C:\\old", tree: sampleTree });
-  openMock.mockResolvedValue(null);
-
-  await useWorkspaceStore.getState().openRoot();
-
-  expect(useWorkspaceStore.getState().rootPath).toBe("C:\\old");
-  expect(useWorkspaceStore.getState().tree).toEqual(sampleTree);
-  expect(scanRootMock).not.toHaveBeenCalled();
-});
-
-test("scanner error leaves previous root/tree untouched and records an error", async () => {
-  useWorkspaceStore.setState({ rootPath: "C:\\old", tree: sampleTree });
-  openMock.mockResolvedValue("C:\\notes");
+test("createWorkspace with a failing scan keeps the prior workspace and records the error", async () => {
+  const existing = makeWorkspace();
+  useWorkspaceStore.setState({ workspace: existing, treeByMount: { "C:\\notes": notesTree } });
+  createWorkspaceApiMock.mockResolvedValue({
+    schemaVersion: 1,
+    id: "ws-new",
+    name: "Study",
+    mounts: [],
+  });
   scanRootMock.mockRejectedValue(new Error("scan failed"));
 
-  await useWorkspaceStore.getState().openRoot();
+  await useWorkspaceStore.getState().createWorkspace("Study", "C:\\notes");
 
-  expect(useWorkspaceStore.getState().rootPath).toBe("C:\\old");
-  expect(useWorkspaceStore.getState().tree).toEqual(sampleTree);
-  expect(useWorkspaceStore.getState().error).toBe("scan failed");
+  const state = useWorkspaceStore.getState();
+  expect(state.workspace).toEqual(existing);
+  expect(state.treeByMount).toEqual({ "C:\\notes": notesTree });
+  expect(state.error).toBe("scan failed");
 });
 
-test("refreshTree rescans the current root", async () => {
-  useWorkspaceStore.setState({ rootPath: "C:\\notes" });
-  scanRootMock.mockResolvedValue(sampleTree);
+test("openWorkspace scans read-write and read-only mounts and skips excluded ones", async () => {
+  const config = makeWorkspace();
+  openWorkspaceApiMock.mockResolvedValue(config);
+  scanRootMock.mockResolvedValueOnce(notesTree).mockResolvedValueOnce(wikiTree);
 
-  await useWorkspaceStore.getState().refreshTree();
+  await useWorkspaceStore.getState().openWorkspace("ws-1");
 
-  expect(scanRootMock).toHaveBeenCalledWith("C:\\notes");
-  expect(useWorkspaceStore.getState().tree).toEqual(sampleTree);
+  expect(openWorkspaceApiMock).toHaveBeenCalledTimes(1);
+  expect(openWorkspaceApiMock).toHaveBeenCalledWith("ws-1");
+  expect(scanRootMock).toHaveBeenCalledTimes(2);
+  expect(scanRootMock).toHaveBeenNthCalledWith(1, "C:\\notes", [".git", "node_modules"]);
+  expect(scanRootMock).toHaveBeenNthCalledWith(2, "D:\\wiki", [".git", "node_modules"]);
+  const state = useWorkspaceStore.getState();
+  expect(state.workspace).toEqual(config);
+  expect(state.treeByMount).toEqual({ "C:\\notes": notesTree, "D:\\wiki": wikiTree });
+  expect(state.treeByMount["D:\\archive"]).toBeUndefined();
 });
 
-test("refresh replaces a scanned tree while keeping the same root", async () => {
-  const treeA: FileTreeNode[] = [{ name: "a.md", path: "C:\\notes\\a.md", kind: "markdown" }];
-  const treeB: FileTreeNode[] = [{ name: "b.md", path: "C:\\notes\\b.md", kind: "markdown" }];
-  openMock.mockResolvedValue("C:\\notes");
-  scanRootMock.mockResolvedValueOnce(treeA).mockResolvedValueOnce(treeB);
+test("openWorkspace applies the mount's own exclusions when present", async () => {
+  const config = makeWorkspace({
+    mounts: [
+      { path: "C:\\notes", permission: "read-write", exclusions: ["tmp"] },
+      { path: "D:\\wiki", permission: "read-only" },
+    ],
+  });
+  openWorkspaceApiMock.mockResolvedValue(config);
+  scanRootMock.mockResolvedValue(notesTree).mockResolvedValue(wikiTree);
 
-  await useWorkspaceStore.getState().openRoot();
+  await useWorkspaceStore.getState().openWorkspace("ws-1");
+
+  expect(scanRootMock).toHaveBeenNthCalledWith(1, "C:\\notes", ["tmp"]);
+  expect(scanRootMock).toHaveBeenNthCalledWith(2, "D:\\wiki", [".git", "node_modules"]);
+});
+
+test("a scanner error on open leaves the workspace untouched and records the error", async () => {
+  const existing = makeWorkspace();
+  useWorkspaceStore.setState({ workspace: existing, treeByMount: { "C:\\notes": notesTree } });
+  const failing = makeWorkspace({ id: "ws-other", name: "Other" });
+  openWorkspaceApiMock.mockResolvedValue(failing);
+  scanRootMock.mockRejectedValue(new Error("scan failed"));
+
+  await useWorkspaceStore.getState().openWorkspace("ws-other");
+
+  const state = useWorkspaceStore.getState();
+  expect(state.workspace).toEqual(existing);
+  expect(state.treeByMount).toEqual({ "C:\\notes": notesTree });
+  expect(state.error).toBe("scan failed");
+});
+
+test("addMount appends the mount, scans it, and updates treeByMount", async () => {
+  const config = makeWorkspace();
+  useWorkspaceStore.setState({
+    workspace: config,
+    treeByMount: { "C:\\notes": notesTree },
+  });
+  scanRootMock.mockResolvedValue(archiveTree);
+
+  await useWorkspaceStore.getState().addMount("D:\\vault", "read-write");
+
+  expect(scanRootMock).toHaveBeenCalledWith("D:\\vault", [".git", "node_modules"]);
+  const state = useWorkspaceStore.getState();
+  expect(state.workspace?.mounts).toEqual([
+    { path: "C:\\notes", permission: "read-write" },
+    { path: "D:\\wiki", permission: "read-only" },
+    { path: "D:\\archive", permission: "excluded" },
+    { path: "D:\\vault", permission: "read-write" },
+  ]);
+  expect(state.treeByMount["D:\\vault"]).toEqual(archiveTree);
+  expect(state.treeByMount["C:\\notes"]).toEqual(notesTree);
+});
+
+test("addMount with a failing scan keeps the prior mounts and trees and records the error", async () => {
+  const config = makeWorkspace();
+  useWorkspaceStore.setState({
+    workspace: config,
+    treeByMount: { "C:\\notes": notesTree },
+  });
+  scanRootMock.mockRejectedValue(new Error("scan failed"));
+
+  await useWorkspaceStore.getState().addMount("D:\\vault", "read-write");
+
+  const state = useWorkspaceStore.getState();
+  expect(state.workspace?.mounts).toEqual(config.mounts);
+  expect(state.treeByMount).toEqual({ "C:\\notes": notesTree });
+  expect(state.error).toBe("scan failed");
+});
+
+test("removeMount removes the mount and its tree", async () => {
+  const config = makeWorkspace();
+  useWorkspaceStore.setState({
+    workspace: config,
+    treeByMount: { "C:\\notes": notesTree, "D:\\wiki": wikiTree },
+  });
+
+  await useWorkspaceStore.getState().removeMount("D:\\wiki");
+
+  const state = useWorkspaceStore.getState();
+  expect(state.workspace?.mounts.map((mount) => mount.path)).toEqual([
+    "C:\\notes",
+    "D:\\archive",
+  ]);
+  expect(state.treeByMount).toEqual({ "C:\\notes": notesTree });
+});
+
+test("setMountPermission updates the mount without rescansing", async () => {
+  const config = makeWorkspace();
+  useWorkspaceStore.setState({
+    workspace: config,
+    treeByMount: { "C:\\notes": notesTree },
+  });
+
+  await useWorkspaceStore.getState().setMountPermission("C:\\notes", "read-only");
+
+  expect(scanRootMock).not.toHaveBeenCalled();
+  const state = useWorkspaceStore.getState();
+  expect(state.workspace?.mounts[0]).toEqual({ path: "C:\\notes", permission: "read-only" });
+  expect(state.workspace?.mounts[1]).toEqual({ path: "D:\\wiki", permission: "read-only" });
+  expect(state.treeByMount["C:\\notes"]).toEqual(notesTree);
+});
+
+test("refreshTree rescans all read-write and read-only mounts", async () => {
+  const config = makeWorkspace();
+  useWorkspaceStore.setState({
+    workspace: config,
+    treeByMount: { "C:\\notes": notesTree, "D:\\wiki": wikiTree },
+  });
+  const refreshedNotes: FileTreeNode[] = [
+    { name: "a.md", path: "C:\\notes\\a.md", kind: "markdown" },
+    { name: "c.md", path: "C:\\notes\\c.md", kind: "markdown" },
+  ];
+  scanRootMock.mockResolvedValueOnce(refreshedNotes).mockResolvedValueOnce(wikiTree);
+
   await useWorkspaceStore.getState().refreshTree();
 
   expect(scanRootMock).toHaveBeenCalledTimes(2);
-  expect(scanRootMock).toHaveBeenNthCalledWith(2, "C:\\notes");
-  expect(useWorkspaceStore.getState().tree).toEqual(treeB);
-  expect(useWorkspaceStore.getState().rootPath).toBe("C:\\notes");
-  expect(useWorkspaceStore.getState().error).toBeNull();
+  expect(scanRootMock).toHaveBeenNthCalledWith(1, "C:\\notes", [".git", "node_modules"]);
+  expect(scanRootMock).toHaveBeenNthCalledWith(2, "D:\\wiki", [".git", "node_modules"]);
+  const state = useWorkspaceStore.getState();
+  expect(state.treeByMount["C:\\notes"]).toEqual(refreshedNotes);
+  expect(state.treeByMount["D:\\wiki"]).toEqual(wikiTree);
+  expect(state.error).toBeNull();
 });
 
-test("refresh error keeps the old tree visible and records the error", async () => {
-  const treeA: FileTreeNode[] = [{ name: "a.md", path: "C:\\notes\\a.md", kind: "markdown" }];
-  useWorkspaceStore.setState({ rootPath: "C:\\notes", tree: treeA });
+test("refreshTree error keeps the old trees and records the error", async () => {
+  const config = makeWorkspace();
+  useWorkspaceStore.setState({
+    workspace: config,
+    treeByMount: { "C:\\notes": notesTree, "D:\\wiki": wikiTree },
+  });
   scanRootMock.mockRejectedValue(new Error("refresh failed"));
 
   await useWorkspaceStore.getState().refreshTree();
 
-  expect(useWorkspaceStore.getState().tree).toEqual(treeA);
-  expect(useWorkspaceStore.getState().rootPath).toBe("C:\\notes");
-  expect(useWorkspaceStore.getState().error).toBe("refresh failed");
+  const state = useWorkspaceStore.getState();
+  expect(state.treeByMount).toEqual({ "C:\\notes": notesTree, "D:\\wiki": wikiTree });
+  expect(state.workspace).toEqual(config);
+  expect(state.error).toBe("refresh failed");
+});
+
+test("switchToWelcome clears the workspace and trees", () => {
+  const config = makeWorkspace();
+  useWorkspaceStore.setState({
+    workspace: config,
+    treeByMount: { "C:\\notes": notesTree },
+  });
+
+  useWorkspaceStore.getState().switchToWelcome();
+
+  const state = useWorkspaceStore.getState();
+  expect(state.workspace).toBeNull();
+  expect(state.treeByMount).toEqual({});
+  expect(state.error).toBeNull();
 });

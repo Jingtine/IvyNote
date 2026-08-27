@@ -15,9 +15,10 @@ function fileNameOf(path: string): string {
 }
 
 export function App() {
-  const rootPath = useWorkspaceStore((state) => state.rootPath);
-  const tree = useWorkspaceStore((state) => state.tree);
+  const workspace = useWorkspaceStore((state) => state.workspace);
+  const treeByMount = useWorkspaceStore((state) => state.treeByMount);
   const refreshTree = useWorkspaceStore((state) => state.refreshTree);
+  const switchToWelcome = useWorkspaceStore((state) => state.switchToWelcome);
   const workspaceError = useWorkspaceStore((state) => state.error);
 
   const activeDocument = useEditorStore((state) => state.document);
@@ -38,21 +39,28 @@ export function App() {
   };
 
   useEffect(() => {
-    const missing = activeDocument !== null && !containsMarkdownPath(tree, activeDocument.path);
+    const inTree = Object.values(treeByMount).some((tree) =>
+      containsMarkdownPath(tree, activeDocument?.path ?? ""),
+    );
+    const missing = activeDocument !== null && !inTree;
     setFileMissing(missing);
-  }, [tree, activeDocument, setFileMissing]);
+  }, [treeByMount, activeDocument, setFileMissing]);
 
-  if (rootPath === null) {
+  if (workspace === null) {
     return (
       <main role="application" aria-label="Local Knowledge IDE">
         <section aria-label="Welcome">
           <h1>Local Knowledge IDE</h1>
-          <p>Open a local folder to begin</p>
-          <WorkspacePicker />
+          <p>No workspace selected</p>
+          <button type="button" onClick={() => switchToWelcome()}>
+            Create a workspace
+          </button>
         </section>
       </main>
     );
   }
+
+  const mountEntries = Object.entries(treeByMount);
 
   return (
     <main role="application" aria-label="Local Knowledge IDE">
@@ -70,7 +78,16 @@ export function App() {
             </p>
           )}
         </div>
-        <FileTree tree={tree} rootPath={rootPath} onOpenMarkdown={handleOpenMarkdown} />
+        {mountEntries.length === 0 ? (
+          <p>This workspace has no mounts yet.</p>
+        ) : (
+          mountEntries.map(([mountPath, tree]) => (
+            <div key={mountPath} aria-label={`Mount ${mountPath}`}>
+              <h2>{mountPath}</h2>
+              <FileTree tree={tree} rootPath={mountPath} onOpenMarkdown={handleOpenMarkdown} />
+            </div>
+          ))
+        )}
       </aside>
       <section aria-label="Editor">
         {error !== null && (
