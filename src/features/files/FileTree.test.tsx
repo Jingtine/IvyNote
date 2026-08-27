@@ -2,10 +2,11 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 
+import type { MountConfig } from "../workspace/workspaceConfig";
 import type { FileTreeNode } from "./fileTypes";
 import { FileTree } from "./FileTree";
 
-const tree: FileTreeNode[] = [
+const workspaceTree: FileTreeNode[] = [
   {
     name: "notes",
     path: "C:\\workspace\\notes",
@@ -29,8 +30,32 @@ const tree: FileTreeNode[] = [
   { name: "scratch.md", path: "C:\\workspace\\scratch.md", kind: "markdown" },
 ];
 
+const docsTree: FileTreeNode[] = [
+  { name: "handbook.md", path: "D:\\docs\\handbook.md", kind: "markdown" },
+];
+
+const archiveTree: FileTreeNode[] = [
+  { name: "secret.md", path: "E:\\archive\\secret.md", kind: "markdown" },
+];
+
+const mounts: MountConfig[] = [
+  { path: "C:\\workspace", permission: "read-write" },
+  { path: "D:\\docs", permission: "read-only" },
+  { path: "E:\\archive", permission: "excluded" },
+];
+
 function renderTree(onOpenMarkdown = vi.fn()) {
-  render(<FileTree tree={tree} onOpenMarkdown={onOpenMarkdown} />);
+  render(
+    <FileTree
+      mounts={mounts}
+      treeByMount={{
+        "C:\\workspace": workspaceTree,
+        "D:\\docs": docsTree,
+        "E:\\archive": archiveTree,
+      }}
+      onOpenMarkdown={onOpenMarkdown}
+    />,
+  );
   return onOpenMarkdown;
 }
 
@@ -111,17 +136,59 @@ test("Enter key toggles a directory and opens a file", async () => {
   expect(onOpenMarkdown).toHaveBeenCalledWith("C:\\workspace\\notes\\intro.md");
 });
 
-test("shows a shortened root path while keeping the full path accessible", () => {
+test("read-only mounts render a header with an accessible read-only marker", () => {
+  renderTree();
+
+  expect(screen.getByRole("heading", { name: "D:\\docs" })).toBeInTheDocument();
+  expect(screen.getByRole("img", { name: "read-only" })).toBeInTheDocument();
+  expect(screen.getByRole("treeitem", { name: "handbook.md" })).toBeInTheDocument();
+});
+
+test("excluded mounts render no header and no items", () => {
+  renderTree();
+
+  expect(screen.queryByRole("heading", { name: "E:\\archive" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("treeitem", { name: "secret.md" })).not.toBeInTheDocument();
+  expect(screen.queryByText("secret.md")).not.toBeInTheDocument();
+  expect(screen.queryByText("excluded")).not.toBeInTheDocument();
+});
+
+test("two mounts render under distinct headers and files emit their exact paths", async () => {
+  const user = userEvent.setup();
+  const onOpenMarkdown = renderTree();
+
+  expect(screen.getByRole("heading", { name: "C:\\workspace" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "D:\\docs" })).toBeInTheDocument();
+
+  await user.click(screen.getByRole("treeitem", { name: "handbook.md" }));
+
+  expect(onOpenMarkdown).toHaveBeenCalledTimes(1);
+  expect(onOpenMarkdown).toHaveBeenCalledWith("D:\\docs\\handbook.md");
+
+  await user.click(screen.getByRole("treeitem", { name: "scratch.md" }));
+
+  expect(onOpenMarkdown).toHaveBeenCalledTimes(2);
+  expect(onOpenMarkdown).toHaveBeenLastCalledWith("C:\\workspace\\scratch.md");
+});
+
+test("mount headers show a shortened path while keeping the full path accessible", () => {
   render(
     <FileTree
-      tree={tree}
-      rootPath="C:\Users\LJT\Documents\SomeVeryLongFolderName\Notes"
+      mounts={[
+        {
+          path: "C:\\Users\\LJT\\Documents\\SomeVeryLongFolderName\\Notes",
+          permission: "read-write",
+        },
+      ]}
+      treeByMount={{
+        "C:\\Users\\LJT\\Documents\\SomeVeryLongFolderName\\Notes": workspaceTree,
+      }}
       onOpenMarkdown={vi.fn()}
     />,
   );
 
-  const rootLabel = screen.getByTitle("C:\\Users\\LJT\\Documents\\SomeVeryLongFolderName\\Notes");
+  const header = screen.getByTitle("C:\\Users\\LJT\\Documents\\SomeVeryLongFolderName\\Notes");
 
-  expect(rootLabel).toHaveTextContent("…");
-  expect(rootLabel.textContent).not.toBe("C:\\Users\\LJT\\Documents\\SomeVeryLongFolderName\\Notes");
+  expect(header).toHaveTextContent("…");
+  expect(header.textContent).not.toBe("C:\\Users\\LJT\\Documents\\SomeVeryLongFolderName\\Notes");
 });

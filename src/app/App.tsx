@@ -81,12 +81,11 @@ export function App() {
         {mountEntries.length === 0 ? (
           <p>This workspace has no mounts yet.</p>
         ) : (
-          mountEntries.map(([mountPath, tree]) => (
-            <div key={mountPath} aria-label={`Mount ${mountPath}`}>
-              <h2>{mountPath}</h2>
-              <FileTree tree={tree} rootPath={mountPath} onOpenMarkdown={handleOpenMarkdown} />
-            </div>
-          ))
+          <FileTree
+            mounts={workspace.mounts}
+            treeByMount={treeByMount}
+            onOpenMarkdown={handleOpenMarkdown}
+          />
         )}
       </aside>
       <section aria-label="Editor">
