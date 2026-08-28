@@ -42,6 +42,8 @@ export function App() {
   const save = useEditorStore((state) => state.save);
   const setDraft = useEditorStore((state) => state.setDraft);
   const setFileMissing = useEditorStore((state) => state.setFileMissing);
+  const closeIfInMount = useEditorStore((state) => state.closeIfInMount);
+  const clearDocument = useEditorStore((state) => state.clearDocument);
 
   const [mountsOpen, setMountsOpen] = useState(false);
   const [lifecycleAction, setLifecycleAction] = useState<LifecycleAction | null>(null);
@@ -86,10 +88,8 @@ export function App() {
 
   const handleRemoveMount = (path: string) => {
     if (lifecycleAction !== null || pendingPath !== null) return;
-    const hostsActiveDocument =
-      activeDocument !== null &&
-      containsMarkdownPath(treeByMount[path] ?? [], activeDocument.path);
-    if (dirty && activeDocument !== null && hostsActiveDocument) {
+    const closed = closeIfInMount(path);
+    if (!closed) {
       cancelOpenRequest();
       setLifecycleAction({ type: "removeMount", mountPath: path });
       return;
@@ -114,6 +114,7 @@ export function App() {
     if (lifecycleAction === null) return;
     const action = lifecycleAction;
     setLifecycleAction(null);
+    clearDocument();
     if (action.type === "switchWorkspace") {
       switchToWelcome();
     } else {

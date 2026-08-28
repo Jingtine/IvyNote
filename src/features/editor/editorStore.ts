@@ -13,6 +13,11 @@ function toErrorMessage(error: unknown): string {
   return String(error);
 }
 
+function isPathWithinMount(path: string, mountPath: string): boolean {
+  if (path === mountPath) return true;
+  return path.startsWith(mountPath + "\\") || path.startsWith(mountPath + "/");
+}
+
 let savePromise: Promise<boolean> | null = null;
 
 export interface EditorState {
@@ -38,6 +43,16 @@ export interface EditorState {
   setFileMissing(value: boolean): void;
   /** Follows an external rename of the active document (a follow, not a reload). */
   handleWatcherRename(from: string, to: string): void;
+  /** Follows a rename of the document from `from` to `to`, keeping its content. */
+  followRename(from: string, to: string): void;
+  /**
+   * Closes the active document when it lives inside the mount being removed.
+   * Returns true when nothing is dirty (removal may proceed), false when the
+   * caller must invoke the unsaved-changes guard first.
+   */
+  closeIfInMount(mountPath: string): boolean;
+  /** Resets all open-document state (used when the user discards changes). */
+  clearDocument(): void;
 }
 
 export const useEditorStore = create<EditorState>((set, get) => ({
@@ -138,16 +153,45 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const { pendingPath } = get();
     if (pendingPath === null) return;
     set({ pendingPath: null });
+    get().clearDocument();
     await get().loadDocument(pendingPath);
   },
   cancelOpenRequest: () => set({ pendingPath: null }),
   setFileMissing: (value) => set({ fileMissing: value }),
   handleWatcherRename: (from, to) => {
+    get().followRename(from, to);
+  },
+  followRename: (from, to) => {
     const { document, pendingPath } = get();
     if (document === null || document.path !== from) return;
     set({
       document: { ...document, path: to },
       pendingPath: pendingPath === from ? to : pendingPath,
+      fileMissing: false,
+    });
+  },
+  closeIfInMount: (mountPath) => {
+    const { document, dirty } = get();
+    if (document === null || !isPathWithinMount(document.path, mountPath)) return true;
+    if (dirty) return false;
+    set({
+      document: null,
+      draft: "",
+      dirty: false,
+      error: null,
+      fileMissing: false,
+    });
+    return true;
+  },
+  clearDocument: () => {
+    set({
+      document: null,
+      draft: "",
+      dirty: false,
+      loading: false,
+      error: null,
+      conflict: false,
+      pendingPath: null,
       fileMissing: false,
     });
   },

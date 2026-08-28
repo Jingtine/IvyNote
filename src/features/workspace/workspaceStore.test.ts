@@ -15,7 +15,12 @@ import {
   updateWorkspaceExclusions as updateWorkspaceExclusionsApi,
   watchWorkspace,
 } from "./workspaceApi";
+import { useEditorStore } from "../editor/editorStore";
 import { useWorkspaceStore } from "./workspaceStore";
+
+vi.mock("../editor/editorStore", () => ({
+  useEditorStore: { getState: vi.fn() },
+}));
 
 vi.mock("./workspaceApi", () => ({
   addMount: vi.fn(),
@@ -42,6 +47,20 @@ const stopWatchingMock = vi.mocked(stopWatching);
 const updateMountExclusionsApiMock = vi.mocked(updateMountExclusionsApi);
 const updateWorkspaceExclusionsApiMock = vi.mocked(updateWorkspaceExclusionsApi);
 const watchWorkspaceMock = vi.mocked(watchWorkspace);
+const editorGetState = vi.mocked(useEditorStore.getState);
+
+interface EditorStoreStub {
+  closeIfInMount: ReturnType<typeof vi.fn>;
+  clearDocument: ReturnType<typeof vi.fn>;
+}
+
+function editorStoreStub(overrides: Partial<EditorStoreStub> = {}): EditorStoreStub {
+  return {
+    closeIfInMount: vi.fn(() => true),
+    clearDocument: vi.fn(),
+    ...overrides,
+  };
+}
 
 function makeWorkspace(overrides: Partial<WorkspaceConfig> = {}): WorkspaceConfig {
   return {
@@ -78,6 +97,10 @@ beforeEach(() => {
   updateWorkspaceExclusionsApiMock.mockReset();
   watchWorkspaceMock.mockReset();
   watchWorkspaceMock.mockResolvedValue(undefined);
+  editorGetState.mockReset();
+  editorGetState.mockReturnValue(
+    editorStoreStub() as unknown as ReturnType<typeof useEditorStore.getState>,
+  );
   useWorkspaceStore.setState({ workspace: null, treeByMount: {}, error: null });
 });
 
@@ -384,6 +407,26 @@ test("removeMount re-syncs the watcher after removing the mount", async () => {
   expect(watchWorkspaceMock).toHaveBeenCalledWith("ws-1");
 });
 
+test("removeMount does not finalize removal while the removed mount hosts a dirty document", async () => {
+  const config = makeWorkspace();
+  useWorkspaceStore.setState({
+    workspace: config,
+    treeByMount: { "C:\\notes": notesTree, "D:\\wiki": wikiTree },
+  });
+  editorGetState.mockReturnValue(
+    editorStoreStub({ closeIfInMount: vi.fn(() => false) }) as unknown as ReturnType<
+      typeof useEditorStore.getState
+    >,
+  );
+
+  await useWorkspaceStore.getState().removeMount("D:\\wiki");
+
+  expect(removeMountApiMock).not.toHaveBeenCalled();
+  const state = useWorkspaceStore.getState();
+  expect(state.workspace).toEqual(config);
+  expect(state.treeByMount).toEqual({ "C:\\notes": notesTree, "D:\\wiki": wikiTree });
+});
+
 test("setMountPermission re-syncs the watcher after the permission change", async () => {
   const config = makeWorkspace();
   useWorkspaceStore.setState({
@@ -431,7 +474,7 @@ test("setMountPermission persists via the API and updates the mount without resc
   expect(state.treeByMount["C:\\notes"]).toEqual(notesTree);
 });
 
-test("switchToWelcome stops watching before clearing the workspace", () => {
+test("switchToWelcome stops watching and clears the workspace", () => {
   const config = makeWorkspace();
   useWorkspaceStore.setState({
     workspace: config,
@@ -441,6 +484,7 @@ test("switchToWelcome stops watching before clearing the workspace", () => {
   useWorkspaceStore.getState().switchToWelcome();
 
   expect(stopWatchingMock).toHaveBeenCalledTimes(1);
+  expect(editorGetState().clearDocument).toHaveBeenCalledTimes(1);
   const state = useWorkspaceStore.getState();
   expect(state.workspace).toBeNull();
   expect(state.treeByMount).toEqual({});

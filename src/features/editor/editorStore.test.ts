@@ -405,3 +405,124 @@ test("saveAndOpenPending joins an in-flight save instead of dead-ending", async 
   expect(state.saving).toBe(false);
   expect(saveMarkdownDocumentMock).toHaveBeenCalledTimes(1);
 });
+
+test("followRename updates the active document path, keeping content, draft, and dirty without reloading", async () => {
+  readMarkdownFileMock.mockResolvedValue(makeSnapshot());
+  await useEditorStore.getState().loadDocument("C:\\notes\\hello.md");
+  useEditorStore.getState().setDraft("# Edited\n");
+  useEditorStore.getState().setFileMissing(true);
+
+  useEditorStore.getState().followRename("C:\\notes\\hello.md", "C:\\notes\\renamed.md");
+
+  const state = useEditorStore.getState();
+  expect(state.document?.path).toBe("C:\\notes\\renamed.md");
+  expect(state.document?.content).toBe("# Hello\n");
+  expect(state.draft).toBe("# Edited\n");
+  expect(state.dirty).toBe(true);
+  expect(state.fileMissing).toBe(false);
+  expect(readMarkdownFileMock).toHaveBeenCalledTimes(1);
+});
+
+test("followRename leaves the document untouched when it does not match the source path", async () => {
+  readMarkdownFileMock.mockResolvedValue(makeSnapshot());
+  await useEditorStore.getState().loadDocument("C:\\notes\\hello.md");
+  useEditorStore.getState().setFileMissing(true);
+
+  useEditorStore.getState().followRename("C:\\notes\\other.md", "C:\\notes\\moved.md");
+
+  const state = useEditorStore.getState();
+  expect(state.document?.path).toBe("C:\\notes\\hello.md");
+  expect(state.fileMissing).toBe(true);
+});
+
+test("followRename is a no-op when no document is open", () => {
+  useEditorStore.getState().followRename("C:\\notes\\hello.md", "C:\\notes\\moved.md");
+  expect(useEditorStore.getState().document).toBeNull();
+});
+
+test("closeIfInMount closes a clean document inside the mount and returns true", async () => {
+  readMarkdownFileMock.mockResolvedValue(makeSnapshot());
+  await useEditorStore.getState().loadDocument("C:\\notes\\hello.md");
+
+  const closed = useEditorStore.getState().closeIfInMount("C:\\notes");
+
+  expect(closed).toBe(true);
+  const state = useEditorStore.getState();
+  expect(state.document).toBeNull();
+  expect(state.draft).toBe("");
+  expect(state.dirty).toBe(false);
+});
+
+test("closeIfInMount keeps a dirty document and returns false", async () => {
+  readMarkdownFileMock.mockResolvedValue(makeSnapshot());
+  await useEditorStore.getState().loadDocument("C:\\notes\\hello.md");
+  useEditorStore.getState().setDraft("# Edited\n");
+
+  const closed = useEditorStore.getState().closeIfInMount("C:\\notes");
+
+  expect(closed).toBe(false);
+  const state = useEditorStore.getState();
+  expect(state.document?.path).toBe("C:\\notes\\hello.md");
+  expect(state.draft).toBe("# Edited\n");
+  expect(state.dirty).toBe(true);
+});
+
+test("closeIfInMount returns true without closing when no document is open", () => {
+  expect(useEditorStore.getState().closeIfInMount("C:\\notes")).toBe(true);
+  expect(useEditorStore.getState().document).toBeNull();
+});
+
+test("closeIfInMount returns true without closing when the document is not inside the mount", async () => {
+  readMarkdownFileMock.mockResolvedValue(makeSnapshot());
+  await useEditorStore.getState().loadDocument("C:\\notes\\hello.md");
+
+  const closed = useEditorStore.getState().closeIfInMount("D:\\wiki");
+
+  expect(closed).toBe(true);
+  expect(useEditorStore.getState().document?.path).toBe("C:\\notes\\hello.md");
+});
+
+test("closeIfInMount does not treat a sibling path prefix as inside the mount", async () => {
+  readMarkdownFileMock.mockResolvedValue(makeSnapshot());
+  await useEditorStore.getState().loadDocument("C:\\notes\\hello.md");
+
+  const closed = useEditorStore.getState().closeIfInMount("C:\\notes2");
+
+  expect(closed).toBe(true);
+  expect(useEditorStore.getState().document?.path).toBe("C:\\notes\\hello.md");
+});
+
+test("clearDocument resets the document, draft, and dirty state", async () => {
+  readMarkdownFileMock.mockResolvedValue(makeSnapshot());
+  await useEditorStore.getState().loadDocument("C:\\notes\\hello.md");
+  useEditorStore.getState().setDraft("# Edited\n");
+  useEditorStore.getState().setFileMissing(true);
+  useEditorStore.getState().requestOpenDocument("C:\\notes\\other.md");
+
+  useEditorStore.getState().clearDocument();
+
+  const state = useEditorStore.getState();
+  expect(state.document).toBeNull();
+  expect(state.draft).toBe("");
+  expect(state.dirty).toBe(false);
+  expect(state.fileMissing).toBe(false);
+  expect(state.pendingPath).toBeNull();
+  expect(state.error).toBeNull();
+});
+
+test("discardAndOpenPending clears the discarded draft even when the next load fails", async () => {
+  readMarkdownFileMock.mockResolvedValueOnce(makeSnapshot());
+  await useEditorStore.getState().loadDocument("C:\\notes\\hello.md");
+  useEditorStore.getState().setDraft("# Edited\n");
+  readMarkdownFileMock.mockRejectedValueOnce(new Error("read failed"));
+
+  useEditorStore.getState().requestOpenDocument("C:\\notes\\other.md");
+  await useEditorStore.getState().discardAndOpenPending();
+
+  const state = useEditorStore.getState();
+  expect(state.document).toBeNull();
+  expect(state.draft).toBe("");
+  expect(state.dirty).toBe(false);
+  expect(state.pendingPath).toBeNull();
+  expect(state.error).toBe("read failed");
+});

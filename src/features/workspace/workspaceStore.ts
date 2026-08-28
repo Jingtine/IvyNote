@@ -1,5 +1,6 @@
 import { create } from "zustand";
 
+import { useEditorStore } from "../editor/editorStore";
 import type { FileTreeNode } from "../files/fileTypes";
 import type { MountConfig, MountPermission, WorkspaceConfig } from "./workspaceConfig";
 import { DEFAULT_EXCLUSIONS } from "./workspaceConfig";
@@ -112,6 +113,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
   switchToWelcome: () => {
     stopWatchingOrReport();
+    useEditorStore.getState().clearDocument();
     set({ workspace: null, treeByMount: {}, error: null });
   },
   addMount: async (path, permission) => {
@@ -146,6 +148,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   removeMount: async (path) => {
     const workspace = get().workspace;
     if (workspace === null) return;
+    if (!useEditorStore.getState().closeIfInMount(path)) return;
     try {
       const updated = await removeMountApi(workspace.id, path);
       const treeByMount = { ...get().treeByMount };
