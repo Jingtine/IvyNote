@@ -50,3 +50,17 @@ test("simple fixture tree exposes only the expected Markdown files", () => {
   expect(readBytes("simple/ignored.txt").length).toBeGreaterThan(0);
   expect(statSync(join(FIXTURES, "simple/Notes/hello.md")).isFile()).toBe(true);
 });
+
+test("multi fixture tree exposes two mounts, each with a nested note and a tmp dir", () => {
+  expect(collectMdPaths("multi").sort()).toEqual([
+    "README.md",
+    "notes/Projects/project-a.md",
+    "notes/README.md",
+    "notes/tmp/scratch.md",
+    "wiki/Reference/glossary.md",
+    "wiki/index.md",
+    "wiki/tmp/sandbox.md",
+  ]);
+  expect(statSync(join(FIXTURES, "multi/notes/tmp/scratch.md")).isFile()).toBe(true);
+  expect(statSync(join(FIXTURES, "multi/wiki/tmp/sandbox.md")).isFile()).toBe(true);
+});
