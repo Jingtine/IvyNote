@@ -73,8 +73,12 @@ pub fn load_workspace(app_data_dir: &Path, id: &str) -> Result<WorkspaceConfig, 
         }
         Err(e) => return Err(io_error(e, &path)),
     };
-    serde_json::from_slice(&bytes)
-        .map_err(|_| AppError::InvalidWorkspaceConfig { id: id.to_string() })
+    let config: WorkspaceConfig = serde_json::from_slice(&bytes)
+        .map_err(|_| AppError::InvalidWorkspaceConfig { id: id.to_string() })?;
+    if config.schema_version != WORKSPACE_SCHEMA_VERSION {
+        return Err(AppError::InvalidWorkspaceConfig { id: id.to_string() });
+    }
+    Ok(config)
 }
 
 pub fn save_workspace(app_data_dir: &Path, config: &WorkspaceConfig) -> Result<(), AppError> {
@@ -351,6 +355,19 @@ mod tests {
         let err = load_workspace(tmp.path(), id).unwrap_err();
         match err {
             AppError::InvalidWorkspaceConfig { id: got } => assert_eq!(got, id),
+            other => panic!("expected InvalidWorkspaceConfig, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unsupported_schema_version_returns_invalid_workspace_config() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut ws = create_workspace(tmp.path(), "WS").unwrap();
+        ws.schema_version = 999;
+        save_workspace(tmp.path(), &ws).unwrap();
+        let err = load_workspace(tmp.path(), &ws.id).unwrap_err();
+        match err {
+            AppError::InvalidWorkspaceConfig { id: got } => assert_eq!(got, ws.id),
             other => panic!("expected InvalidWorkspaceConfig, got {other:?}"),
         }
     }
