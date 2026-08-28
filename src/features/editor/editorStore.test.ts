@@ -316,6 +316,41 @@ test("loading another document resets the missing-on-disk state", async () => {
   expect(useEditorStore.getState().fileMissing).toBe(false);
 });
 
+test("handleWatcherRename follows a rename of the active document without losing the draft", async () => {
+  readMarkdownFileMock.mockResolvedValue(makeSnapshot());
+  await useEditorStore.getState().loadDocument("C:\\notes\\hello.md");
+  useEditorStore.getState().setDraft("# Edited\n");
+  useEditorStore.getState().setFileMissing(true);
+
+  useEditorStore
+    .getState()
+    .handleWatcherRename("C:\\notes\\hello.md", "C:\\notes\\renamed.md");
+
+  const state = useEditorStore.getState();
+  expect(state.document?.path).toBe("C:\\notes\\renamed.md");
+  expect(state.draft).toBe("# Edited\n");
+  expect(state.dirty).toBe(true);
+  expect(state.fileMissing).toBe(false);
+});
+
+test("handleWatcherRename leaves the document alone when the rename is for another file", async () => {
+  readMarkdownFileMock.mockResolvedValue(makeSnapshot());
+  await useEditorStore.getState().loadDocument("C:\\notes\\hello.md");
+
+  useEditorStore
+    .getState()
+    .handleWatcherRename("C:\\notes\\other.md", "C:\\notes\\moved.md");
+
+  const state = useEditorStore.getState();
+  expect(state.document?.path).toBe("C:\\notes\\hello.md");
+  expect(state.fileMissing).toBe(false);
+});
+
+test("handleWatcherRename is a no-op when no document is open", () => {
+  useEditorStore.getState().handleWatcherRename("C:\\notes\\hello.md", "C:\\notes\\moved.md");
+  expect(useEditorStore.getState().document).toBeNull();
+});
+
 test("saveAndOpenPending keeps the draft and the pending request when the file is missing on disk", async () => {
   readMarkdownFileMock.mockResolvedValueOnce(makeSnapshot());
   await useEditorStore.getState().loadDocument("C:\\notes\\hello.md");

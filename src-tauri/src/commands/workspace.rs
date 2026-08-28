@@ -76,3 +76,35 @@ pub fn update_workspace_exclusions(
 ) -> Result<WorkspaceConfig, AppError> {
     config::update_workspace_exclusions(&app_data_dir(&app)?, &workspace_id, &exclusions)
 }
+
+/// Starts a per-mount file watcher for every readable mount of the workspace.
+///
+/// Excluded mounts are skipped; each watched mount uses its effective
+/// exclusions (mount override, else workspace default, else built-in).
+#[tauri::command]
+pub fn watch_workspace(workspace_id: String, app: tauri::AppHandle) -> Result<(), AppError> {
+    let config = config::load_workspace(&app_data_dir(&app)?, &workspace_id)?;
+    let mounts: Vec<(String, Vec<String>)> = config
+        .mounts
+        .iter()
+        .filter(|mount| {
+            matches!(
+                mount.permission,
+                config::MountPermission::ReadWrite | config::MountPermission::ReadOnly
+            )
+        })
+        .map(|mount| {
+            (
+                mount.path.clone(),
+                config::effective_exclusions(&config, mount),
+            )
+        })
+        .collect();
+    crate::watcher::start_watching(&app, &mounts)
+}
+
+/// Stops all active file watchers.
+#[tauri::command]
+pub fn stop_watching_cmd(app: tauri::AppHandle) -> Result<(), AppError> {
+    crate::watcher::stop_watching(&app)
+}

@@ -36,6 +36,8 @@ export interface EditorState {
   discardAndOpenPending(): Promise<void>;
   cancelOpenRequest(): void;
   setFileMissing(value: boolean): void;
+  /** Follows an external rename of the active document (a follow, not a reload). */
+  handleWatcherRename(from: string, to: string): void;
 }
 
 export const useEditorStore = create<EditorState>((set, get) => ({
@@ -140,4 +142,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
   cancelOpenRequest: () => set({ pendingPath: null }),
   setFileMissing: (value) => set({ fileMissing: value }),
+  handleWatcherRename: (from, to) => {
+    const { document, pendingPath } = get();
+    if (document === null || document.path !== from) return;
+    set({
+      document: { ...document, path: to },
+      pendingPath: pendingPath === from ? to : pendingPath,
+      fileMissing: false,
+    });
+  },
 }));

@@ -3,6 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import userEvent from "@testing-library/user-event";
 import { beforeAll, beforeEach, expect, test, vi } from "vitest";
 import { open } from "@tauri-apps/plugin-dialog";
+import { listen } from "@tauri-apps/api/event";
 
 import { App } from "./App";
 import { readMarkdownFile, saveMarkdownDocument } from "../features/files/fileApi";
@@ -38,6 +39,10 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
   open: vi.fn(),
 }));
 
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn(),
+}));
+
 const readMarkdownFileMock = vi.mocked(readMarkdownFile);
 const saveMarkdownDocumentMock = vi.mocked(saveMarkdownDocument);
 const scanRootMock = vi.mocked(scanRoot);
@@ -46,6 +51,7 @@ const openWorkspaceApiMock = vi.mocked(openWorkspace);
 const listWorkspacesMock = vi.mocked(listWorkspaces);
 const listRecentWorkspacesMock = vi.mocked(listRecentWorkspaces);
 const dialogOpenMock = vi.mocked(open);
+const listenMock = vi.mocked(listen);
 
 const A_PATH = "C:\\notes\\a.md";
 const B_PATH = "C:\\notes\\b.md";
@@ -101,6 +107,8 @@ beforeEach(() => {
   listWorkspacesMock.mockReset();
   listRecentWorkspacesMock.mockReset();
   dialogOpenMock.mockReset();
+  listenMock.mockReset();
+  listenMock.mockResolvedValue(() => {});
   readMarkdownFileMock.mockImplementation(async (path: string) => snapshot(path, `# ${path}\n`));
   listWorkspacesMock.mockResolvedValue([]);
   listRecentWorkspacesMock.mockResolvedValue([]);

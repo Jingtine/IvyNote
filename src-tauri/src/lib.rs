@@ -1,7 +1,10 @@
 pub mod commands;
 pub mod errors;
 pub mod filesystem;
+pub mod watcher;
 pub mod workspace;
+
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -15,6 +18,8 @@ pub fn run() {
             commands::workspace::open_workspace,
             commands::workspace::update_mount_exclusions,
             commands::workspace::update_workspace_exclusions,
+            commands::workspace::watch_workspace,
+            commands::workspace::stop_watching_cmd,
             commands::files::read_markdown_file,
             commands::files::save_markdown_file,
             commands::files::create_folder,
@@ -24,6 +29,7 @@ pub fn run() {
             commands::files::delete_to_trash
         ])
         .setup(|app| {
+            app.manage(crate::watcher::WatcherState::default());
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()

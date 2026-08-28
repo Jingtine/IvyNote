@@ -9,6 +9,7 @@ import { useEditorStore } from "../features/editor/editorStore";
 import { MountManager } from "../features/workspace/MountManager";
 import { WelcomeScreen } from "../features/workspace/WelcomeScreen";
 import { useWorkspaceStore } from "../features/workspace/workspaceStore";
+import { subscribeToWatcherEvents } from "../features/watcher/watcherBridge";
 
 function fileNameOf(path: string): string {
   const segments = path.split(/[\\/]/);
@@ -48,6 +49,22 @@ export function App() {
   const handleOpenMarkdown = (path: string) => {
     requestOpenDocument(path);
   };
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    void subscribeToWatcherEvents().then((unsubscribe) => {
+      if (cancelled) {
+        unsubscribe();
+      } else {
+        unlisten = unsubscribe;
+      }
+    });
+    return () => {
+      cancelled = true;
+      if (unlisten !== undefined) unlisten();
+    };
+  }, []);
 
   useEffect(() => {
     const inTree = Object.values(treeByMount).some((tree) =>
