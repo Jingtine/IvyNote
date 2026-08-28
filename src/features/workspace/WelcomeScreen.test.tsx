@@ -6,6 +6,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import type { FileTreeNode } from "../files/fileTypes";
 import type { WorkspaceConfig } from "./workspaceConfig";
 import {
+  addMount as addMountApi,
   createWorkspace as createWorkspaceApi,
   listRecentWorkspaces,
   listWorkspaces,
@@ -22,6 +23,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 }));
 
 vi.mock("./workspaceApi", () => ({
+  addMount: vi.fn(),
   createWorkspace: vi.fn(),
   openWorkspace: vi.fn(),
   listWorkspaces: vi.fn(),
@@ -32,6 +34,7 @@ vi.mock("./workspaceApi", () => ({
 }));
 
 const openMock = vi.mocked(open);
+const addMountApiMock = vi.mocked(addMountApi);
 const createWorkspaceApiMock = vi.mocked(createWorkspaceApi);
 const openWorkspaceApiMock = vi.mocked(openWorkspaceApi);
 const listWorkspacesMock = vi.mocked(listWorkspaces);
@@ -54,6 +57,7 @@ function makeWorkspace(overrides: Partial<WorkspaceConfig> = {}): WorkspaceConfi
 
 beforeEach(() => {
   openMock.mockReset();
+  addMountApiMock.mockReset();
   createWorkspaceApiMock.mockReset();
   openWorkspaceApiMock.mockReset();
   listWorkspacesMock.mockReset();
@@ -82,6 +86,13 @@ test("New Workspace creates a workspace with the dialog mount path", async () =>
   const user = userEvent.setup();
   openMock.mockResolvedValue("C:\\notes");
   createWorkspaceApiMock.mockResolvedValue(makeWorkspace({ id: "ws-new", name: "Study" }));
+  addMountApiMock.mockResolvedValue(
+    makeWorkspace({
+      id: "ws-new",
+      name: "Study",
+      mounts: [{ path: "C:\\notes", permission: "read-write" }],
+    }),
+  );
   scanRootMock.mockResolvedValue(notesTree);
   render(<WelcomeScreen />);
 

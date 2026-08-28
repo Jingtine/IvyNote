@@ -71,14 +71,26 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     const previous = get().workspace;
     try {
       const created = await createWorkspaceApi(name);
-      const initialMount: MountConfig = { path: initialMountPath, permission: "read-write" };
-      const tree = await scanRoot(initialMountPath, effectiveExclusions(created, initialMount));
+      const updated = await addMountApi(created.id, initialMountPath, "read-write");
+      const mount = updated.mounts.find((mount) => mount.path === initialMountPath);
+      let scanError: string | null = null;
+      let tree: FileTreeNode[] | undefined;
+      if (
+        mount !== undefined &&
+        (mount.permission === "read-write" || mount.permission === "read-only")
+      ) {
+        try {
+          tree = await scanRoot(initialMountPath, effectiveExclusions(updated, mount));
+        } catch (err) {
+          scanError = toErrorMessage(err);
+        }
+      }
       set({
-        workspace: { ...created, mounts: [initialMount] },
-        treeByMount: { [initialMountPath]: tree },
-        error: null,
+        workspace: updated,
+        treeByMount: tree !== undefined ? { [initialMountPath]: tree } : {},
+        error: scanError,
       });
-      watchOrReport(created.id);
+      watchOrReport(updated.id);
     } catch (err) {
       set({ workspace: previous, error: toErrorMessage(err) });
     }
@@ -171,6 +183,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         delete treeByMount[path];
       }
       set({ workspace: updated, treeByMount, error: null });
+      watchOrReport(workspace.id);
     } catch (err) {
       set({ error: toErrorMessage(err) });
     }
@@ -185,6 +198,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         next[mount.path] = await scanRoot(mount.path, effectiveExclusions(updated, mount));
       }
       set({ workspace: updated, treeByMount: next, error: null });
+      watchOrReport(workspace.id);
     } catch (err) {
       set({ error: toErrorMessage(err) });
     }

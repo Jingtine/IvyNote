@@ -14,6 +14,7 @@ import type {
 } from "../features/files/fileTypes";
 import { useEditorStore } from "../features/editor/editorStore";
 import {
+  addMount,
   createWorkspace,
   listRecentWorkspaces,
   listWorkspaces,
@@ -55,6 +56,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 const readMarkdownFileMock = vi.mocked(readMarkdownFile);
 const saveMarkdownDocumentMock = vi.mocked(saveMarkdownDocument);
 const scanRootMock = vi.mocked(scanRoot);
+const addMountApiMock = vi.mocked(addMount);
 const createWorkspaceApiMock = vi.mocked(createWorkspace);
 const openWorkspaceApiMock = vi.mocked(openWorkspace);
 const listWorkspacesMock = vi.mocked(listWorkspaces);
@@ -114,6 +116,7 @@ beforeEach(() => {
   readMarkdownFileMock.mockReset();
   saveMarkdownDocumentMock.mockReset();
   scanRootMock.mockReset();
+  addMountApiMock.mockReset();
   createWorkspaceApiMock.mockReset();
   openWorkspaceApiMock.mockReset();
   listWorkspacesMock.mockReset();
@@ -462,6 +465,12 @@ test("the welcome screen offers creating a workspace that lands in the main UI",
     id: "ws-new",
     name: "Study",
     mounts: [],
+  });
+  addMountApiMock.mockResolvedValue({
+    schemaVersion: 1,
+    id: "ws-new",
+    name: "Study",
+    mounts: [{ path: "C:\\notes", permission: "read-write" }],
   });
   scanRootMock.mockResolvedValue(tree);
 

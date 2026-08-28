@@ -87,32 +87,43 @@ test("initial state has no workspace", () => {
   expect(useWorkspaceStore.getInitialState().error).toBeNull();
 });
 
-test("createWorkspace sets the workspace name and populates the initial mount tree", async () => {
-  const created: WorkspaceConfig = { schemaVersion: 1, id: "ws-new", name: "Study", mounts: [] };
-  createWorkspaceApiMock.mockResolvedValue(created);
+function createdWorkspace(): WorkspaceConfig {
+  return { schemaVersion: 1, id: "ws-new", name: "Study", mounts: [] };
+}
+
+function createdWorkspaceWithMount(): WorkspaceConfig {
+  return {
+    schemaVersion: 1,
+    id: "ws-new",
+    name: "Study",
+    mounts: [{ path: "C:\\notes", permission: "read-write" }],
+  };
+}
+
+test("createWorkspace persists the initial mount and populates the initial mount tree", async () => {
+  createWorkspaceApiMock.mockResolvedValue(createdWorkspace());
+  addMountApiMock.mockResolvedValue(createdWorkspaceWithMount());
   scanRootMock.mockResolvedValue(notesTree);
 
   await useWorkspaceStore.getState().createWorkspace("Study", "C:\\notes");
 
   expect(createWorkspaceApiMock).toHaveBeenCalledTimes(1);
   expect(createWorkspaceApiMock).toHaveBeenCalledWith("Study");
+  expect(addMountApiMock).toHaveBeenCalledTimes(1);
+  expect(addMountApiMock).toHaveBeenCalledWith("ws-new", "C:\\notes", "read-write");
   expect(scanRootMock).toHaveBeenCalledWith(
     "C:\\notes",
     [".git", "node_modules", "dist", "build", "target", ".venv", "venv", ".cache", "coverage"],
   );
   const state = useWorkspaceStore.getState();
-  expect(state.workspace?.id).toBe("ws-new");
-  expect(state.workspace?.name).toBe("Study");
-  expect(state.workspace?.mounts).toEqual([
-    { path: "C:\\notes", permission: "read-write" },
-  ]);
+  expect(state.workspace).toEqual(createdWorkspaceWithMount());
   expect(state.treeByMount["C:\\notes"]).toEqual(notesTree);
   expect(state.error).toBeNull();
 });
 
 test("createWorkspace starts watching the new workspace", async () => {
-  const created: WorkspaceConfig = { schemaVersion: 1, id: "ws-new", name: "Study", mounts: [] };
-  createWorkspaceApiMock.mockResolvedValue(created);
+  createWorkspaceApiMock.mockResolvedValue(createdWorkspace());
+  addMountApiMock.mockResolvedValue(createdWorkspaceWithMount());
   scanRootMock.mockResolvedValue(notesTree);
 
   await useWorkspaceStore.getState().createWorkspace("Study", "C:\\notes");
@@ -121,22 +132,34 @@ test("createWorkspace starts watching the new workspace", async () => {
   expect(watchWorkspaceMock).toHaveBeenCalledWith("ws-new");
 });
 
-test("createWorkspace with a failing scan keeps the prior workspace and records the error", async () => {
+test("createWorkspace watches only after the persisted config with the initial mount is in place", async () => {
+  createWorkspaceApiMock.mockResolvedValue(createdWorkspace());
+  addMountApiMock.mockResolvedValue(createdWorkspaceWithMount());
+  scanRootMock.mockResolvedValue(notesTree);
+  let mountsAtWatchTime: string[] = [];
+  watchWorkspaceMock.mockImplementation(() => {
+    mountsAtWatchTime = useWorkspaceStore.getState().workspace?.mounts.map((mount) => mount.path) ?? [];
+    return Promise.resolve();
+  });
+
+  await useWorkspaceStore.getState().createWorkspace("Study", "C:\\notes");
+
+  expect(mountsAtWatchTime).toContain("C:\\notes");
+  expect(watchWorkspaceMock).toHaveBeenCalledWith("ws-new");
+});
+
+test("createWorkspace with a failing scan keeps the persisted config and records the error", async () => {
   const existing = makeWorkspace();
   useWorkspaceStore.setState({ workspace: existing, treeByMount: { "C:\\notes": notesTree } });
-  createWorkspaceApiMock.mockResolvedValue({
-    schemaVersion: 1,
-    id: "ws-new",
-    name: "Study",
-    mounts: [],
-  });
+  createWorkspaceApiMock.mockResolvedValue(createdWorkspace());
+  addMountApiMock.mockResolvedValue(createdWorkspaceWithMount());
   scanRootMock.mockRejectedValue(new Error("scan failed"));
 
   await useWorkspaceStore.getState().createWorkspace("Study", "C:\\notes");
 
   const state = useWorkspaceStore.getState();
-  expect(state.workspace).toEqual(existing);
-  expect(state.treeByMount).toEqual({ "C:\\notes": notesTree });
+  expect(state.workspace).toEqual(createdWorkspaceWithMount());
+  expect(state.treeByMount).toEqual({});
   expect(state.error).toBe("scan failed");
 });
 
@@ -589,4 +612,42 @@ test("updateWorkspaceExclusions persists and rescans all readable mounts", async
   const state = useWorkspaceStore.getState();
   expect(state.workspace?.exclusions).toEqual(["dist", "coverage"]);
   expect(state.treeByMount).toEqual({ "C:\\notes": notesTree, "D:\\wiki": wikiTree });
+});
+
+test("updateMountExclusions re-syncs the watcher after the edit", async () => {
+  const config = makeWorkspace();
+  useWorkspaceStore.setState({
+    workspace: config,
+    treeByMount: { "C:\\notes": notesTree, "D:\\wiki": wikiTree },
+  });
+  const updated = makeWorkspace({
+    mounts: [
+      { path: "C:\\notes", permission: "read-write", exclusions: ["tmp"] },
+      { path: "D:\\wiki", permission: "read-only" },
+      { path: "D:\\archive", permission: "excluded" },
+    ],
+  });
+  updateMountExclusionsApiMock.mockResolvedValue(updated);
+  scanRootMock.mockResolvedValueOnce(notesTree);
+
+  await useWorkspaceStore.getState().updateMountExclusions("C:\\notes", ["tmp"]);
+
+  expect(watchWorkspaceMock).toHaveBeenCalledTimes(1);
+  expect(watchWorkspaceMock).toHaveBeenCalledWith("ws-1");
+});
+
+test("updateWorkspaceExclusions re-syncs the watcher after the edit", async () => {
+  const config = makeWorkspace();
+  useWorkspaceStore.setState({
+    workspace: config,
+    treeByMount: { "C:\\notes": notesTree, "D:\\wiki": wikiTree },
+  });
+  const updated = makeWorkspace({ exclusions: ["dist", "coverage"] });
+  updateWorkspaceExclusionsApiMock.mockResolvedValue(updated);
+  scanRootMock.mockResolvedValueOnce(notesTree).mockResolvedValueOnce(wikiTree);
+
+  await useWorkspaceStore.getState().updateWorkspaceExclusions(["dist", "coverage"]);
+
+  expect(watchWorkspaceMock).toHaveBeenCalledTimes(1);
+  expect(watchWorkspaceMock).toHaveBeenCalledWith("ws-1");
 });
