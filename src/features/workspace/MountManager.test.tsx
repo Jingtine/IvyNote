@@ -7,8 +7,10 @@ import type { WorkspaceConfig } from "./workspaceConfig";
 import { MountManager } from "./MountManager";
 import {
   scanRoot,
+  stopWatching,
   updateMountExclusions,
   updateWorkspaceExclusions,
+  watchWorkspace,
 } from "./workspaceApi";
 import { useWorkspaceStore } from "./workspaceStore";
 
@@ -22,14 +24,18 @@ vi.mock("./workspaceApi", () => ({
   listWorkspaces: vi.fn(),
   listRecentWorkspaces: vi.fn(),
   scanRoot: vi.fn(),
+  stopWatching: vi.fn(),
   updateMountExclusions: vi.fn(),
   updateWorkspaceExclusions: vi.fn(),
+  watchWorkspace: vi.fn(),
 }));
 
 const openMock = vi.mocked(open);
 const scanRootMock = vi.mocked(scanRoot);
+const stopWatchingMock = vi.mocked(stopWatching);
 const updateMountExclusionsApiMock = vi.mocked(updateMountExclusions);
 const updateWorkspaceExclusionsApiMock = vi.mocked(updateWorkspaceExclusions);
+const watchWorkspaceMock = vi.mocked(watchWorkspace);
 
 function makeWorkspace(overrides: Partial<WorkspaceConfig> = {}): WorkspaceConfig {
   return {
@@ -47,8 +53,12 @@ function makeWorkspace(overrides: Partial<WorkspaceConfig> = {}): WorkspaceConfi
 beforeEach(() => {
   openMock.mockReset();
   scanRootMock.mockReset();
+  stopWatchingMock.mockReset();
+  stopWatchingMock.mockResolvedValue(undefined);
   updateMountExclusionsApiMock.mockReset();
   updateWorkspaceExclusionsApiMock.mockReset();
+  watchWorkspaceMock.mockReset();
+  watchWorkspaceMock.mockResolvedValue(undefined);
   useWorkspaceStore.setState({
     workspace: makeWorkspace(),
     treeByMount: {},

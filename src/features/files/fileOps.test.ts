@@ -1,6 +1,6 @@
 import { beforeEach, expect, test, vi } from "vitest";
 
-import { scanRoot } from "../workspace/workspaceApi";
+import { scanRoot, stopWatching, watchWorkspace } from "../workspace/workspaceApi";
 import { useWorkspaceStore } from "../workspace/workspaceStore";
 import {
   createFolder,
@@ -26,6 +26,8 @@ vi.mock("../workspace/workspaceApi", () => ({
   listWorkspaces: vi.fn(),
   listRecentWorkspaces: vi.fn(),
   scanRoot: vi.fn(),
+  stopWatching: vi.fn(),
+  watchWorkspace: vi.fn(),
 }));
 
 const createFolderMock = vi.mocked(createFolder);
@@ -34,6 +36,8 @@ const renamePathMock = vi.mocked(renamePath);
 const movePathMock = vi.mocked(movePath);
 const deleteToTrashMock = vi.mocked(deleteToTrash);
 const scanRootMock = vi.mocked(scanRoot);
+const stopWatchingMock = vi.mocked(stopWatching);
+const watchWorkspaceMock = vi.mocked(watchWorkspace);
 
 const notesTree: FileTreeNode[] = [
   { name: "notes", path: "C:\\notes\\notes", kind: "directory", children: [] },
@@ -66,6 +70,10 @@ beforeEach(() => {
   movePathMock.mockReset();
   deleteToTrashMock.mockReset();
   scanRootMock.mockReset();
+  stopWatchingMock.mockReset();
+  stopWatchingMock.mockResolvedValue(undefined);
+  watchWorkspaceMock.mockReset();
+  watchWorkspaceMock.mockResolvedValue(undefined);
   useWorkspaceStore.setState({ workspace: null, treeByMount: {}, error: null });
 });
 

@@ -7,8 +7,10 @@ import {
   listWorkspaces,
   openWorkspace as openWorkspaceApi,
   scanRoot,
+  stopWatching,
   updateMountExclusions as updateMountExclusionsApi,
   updateWorkspaceExclusions as updateWorkspaceExclusionsApi,
+  watchWorkspace,
 } from "./workspaceApi";
 import { useWorkspaceStore } from "./workspaceStore";
 
@@ -17,16 +19,20 @@ vi.mock("./workspaceApi", () => ({
   listWorkspaces: vi.fn(),
   openWorkspace: vi.fn(),
   scanRoot: vi.fn(),
+  stopWatching: vi.fn(),
   updateMountExclusions: vi.fn(),
   updateWorkspaceExclusions: vi.fn(),
+  watchWorkspace: vi.fn(),
 }));
 
 const createWorkspaceApiMock = vi.mocked(createWorkspaceApi);
 const listWorkspacesMock = vi.mocked(listWorkspaces);
 const openWorkspaceApiMock = vi.mocked(openWorkspaceApi);
 const scanRootMock = vi.mocked(scanRoot);
+const stopWatchingMock = vi.mocked(stopWatching);
 const updateMountExclusionsApiMock = vi.mocked(updateMountExclusionsApi);
 const updateWorkspaceExclusionsApiMock = vi.mocked(updateWorkspaceExclusionsApi);
+const watchWorkspaceMock = vi.mocked(watchWorkspace);
 
 function makeWorkspace(overrides: Partial<WorkspaceConfig> = {}): WorkspaceConfig {
   return {
@@ -54,8 +60,12 @@ beforeEach(() => {
   listWorkspacesMock.mockReset();
   openWorkspaceApiMock.mockReset();
   scanRootMock.mockReset();
+  stopWatchingMock.mockReset();
+  stopWatchingMock.mockResolvedValue(undefined);
   updateMountExclusionsApiMock.mockReset();
   updateWorkspaceExclusionsApiMock.mockReset();
+  watchWorkspaceMock.mockReset();
+  watchWorkspaceMock.mockResolvedValue(undefined);
   useWorkspaceStore.setState({ workspace: null, treeByMount: {}, error: null });
 });
 
@@ -86,6 +96,17 @@ test("createWorkspace sets the workspace name and populates the initial mount tr
   ]);
   expect(state.treeByMount["C:\\notes"]).toEqual(notesTree);
   expect(state.error).toBeNull();
+});
+
+test("createWorkspace starts watching the new workspace", async () => {
+  const created: WorkspaceConfig = { schemaVersion: 1, id: "ws-new", name: "Study", mounts: [] };
+  createWorkspaceApiMock.mockResolvedValue(created);
+  scanRootMock.mockResolvedValue(notesTree);
+
+  await useWorkspaceStore.getState().createWorkspace("Study", "C:\\notes");
+
+  expect(watchWorkspaceMock).toHaveBeenCalledTimes(1);
+  expect(watchWorkspaceMock).toHaveBeenCalledWith("ws-new");
 });
 
 test("createWorkspace with a failing scan keeps the prior workspace and records the error", async () => {
@@ -141,6 +162,31 @@ test("openWorkspace applies the mount's own exclusions when present", async () =
   expect(scanRootMock).toHaveBeenNthCalledWith(2, "D:\\wiki", [".git", "node_modules"]);
 });
 
+test("openWorkspace starts watching after mounts are loaded", async () => {
+  const config = makeWorkspace();
+  openWorkspaceApiMock.mockResolvedValue(config);
+  scanRootMock.mockResolvedValueOnce(notesTree).mockResolvedValueOnce(wikiTree);
+
+  await useWorkspaceStore.getState().openWorkspace("ws-1");
+
+  expect(watchWorkspaceMock).toHaveBeenCalledTimes(1);
+  expect(watchWorkspaceMock).toHaveBeenCalledWith("ws-1");
+});
+
+test("a watcher start failure on open is non-blocking and surfaces the error", async () => {
+  const config = makeWorkspace();
+  openWorkspaceApiMock.mockResolvedValue(config);
+  scanRootMock.mockResolvedValueOnce(notesTree).mockResolvedValueOnce(wikiTree);
+  watchWorkspaceMock.mockRejectedValueOnce(new Error("watch failed"));
+
+  await useWorkspaceStore.getState().openWorkspace("ws-1");
+
+  const state = useWorkspaceStore.getState();
+  expect(state.workspace).toEqual(config);
+  expect(state.treeByMount).toEqual({ "C:\\notes": notesTree, "D:\\wiki": wikiTree });
+  expect(state.error).toBe("watch failed");
+});
+
 test("a scanner error on open leaves the workspace untouched and records the error", async () => {
   const existing = makeWorkspace();
   useWorkspaceStore.setState({ workspace: existing, treeByMount: { "C:\\notes": notesTree } });
@@ -194,6 +240,20 @@ test("addMount with a failing scan keeps the prior mounts and trees and records 
   expect(state.error).toBe("scan failed");
 });
 
+test("addMount re-syncs the watcher with the workspace id", async () => {
+  const config = makeWorkspace();
+  useWorkspaceStore.setState({
+    workspace: config,
+    treeByMount: { "C:\\notes": notesTree },
+  });
+  scanRootMock.mockResolvedValue(archiveTree);
+
+  await useWorkspaceStore.getState().addMount("D:\\vault", "read-write");
+
+  expect(watchWorkspaceMock).toHaveBeenCalledTimes(1);
+  expect(watchWorkspaceMock).toHaveBeenCalledWith("ws-1");
+});
+
 test("removeMount removes the mount and its tree", async () => {
   const config = makeWorkspace();
   useWorkspaceStore.setState({
@@ -211,6 +271,32 @@ test("removeMount removes the mount and its tree", async () => {
   expect(state.treeByMount).toEqual({ "C:\\notes": notesTree });
 });
 
+test("removeMount re-syncs the watcher after removing the mount", async () => {
+  const config = makeWorkspace();
+  useWorkspaceStore.setState({
+    workspace: config,
+    treeByMount: { "C:\\notes": notesTree, "D:\\wiki": wikiTree },
+  });
+
+  await useWorkspaceStore.getState().removeMount("D:\\wiki");
+
+  expect(watchWorkspaceMock).toHaveBeenCalledTimes(1);
+  expect(watchWorkspaceMock).toHaveBeenCalledWith("ws-1");
+});
+
+test("setMountPermission re-syncs the watcher after the permission change", async () => {
+  const config = makeWorkspace();
+  useWorkspaceStore.setState({
+    workspace: config,
+    treeByMount: { "C:\\notes": notesTree },
+  });
+
+  await useWorkspaceStore.getState().setMountPermission("C:\\notes", "excluded");
+
+  expect(watchWorkspaceMock).toHaveBeenCalledTimes(1);
+  expect(watchWorkspaceMock).toHaveBeenCalledWith("ws-1");
+});
+
 test("setMountPermission updates the mount without rescansing", async () => {
   const config = makeWorkspace();
   useWorkspaceStore.setState({
@@ -225,6 +311,22 @@ test("setMountPermission updates the mount without rescansing", async () => {
   expect(state.workspace?.mounts[0]).toEqual({ path: "C:\\notes", permission: "read-only" });
   expect(state.workspace?.mounts[1]).toEqual({ path: "D:\\wiki", permission: "read-only" });
   expect(state.treeByMount["C:\\notes"]).toEqual(notesTree);
+});
+
+test("switchToWelcome stops watching before clearing the workspace", () => {
+  const config = makeWorkspace();
+  useWorkspaceStore.setState({
+    workspace: config,
+    treeByMount: { "C:\\notes": notesTree },
+  });
+
+  useWorkspaceStore.getState().switchToWelcome();
+
+  expect(stopWatchingMock).toHaveBeenCalledTimes(1);
+  const state = useWorkspaceStore.getState();
+  expect(state.workspace).toBeNull();
+  expect(state.treeByMount).toEqual({});
+  expect(state.error).toBeNull();
 });
 
 test("refreshTree rescans all read-write and read-only mounts", async () => {
@@ -293,21 +395,6 @@ test("refreshTree error keeps the old trees and records the error", async () => 
   expect(state.treeByMount).toEqual({ "C:\\notes": notesTree, "D:\\wiki": wikiTree });
   expect(state.workspace).toEqual(config);
   expect(state.error).toBe("refresh failed");
-});
-
-test("switchToWelcome clears the workspace and trees", () => {
-  const config = makeWorkspace();
-  useWorkspaceStore.setState({
-    workspace: config,
-    treeByMount: { "C:\\notes": notesTree },
-  });
-
-  useWorkspaceStore.getState().switchToWelcome();
-
-  const state = useWorkspaceStore.getState();
-  expect(state.workspace).toBeNull();
-  expect(state.treeByMount).toEqual({});
-  expect(state.error).toBeNull();
 });
 
 test("updateMountExclusions persists via the API and rescans only the mount", async () => {

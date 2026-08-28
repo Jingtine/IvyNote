@@ -11,6 +11,8 @@ import {
   listWorkspaces,
   openWorkspace as openWorkspaceApi,
   scanRoot,
+  stopWatching,
+  watchWorkspace,
 } from "./workspaceApi";
 import { useWorkspaceStore } from "./workspaceStore";
 import { WelcomeScreen } from "./WelcomeScreen";
@@ -25,6 +27,8 @@ vi.mock("./workspaceApi", () => ({
   listWorkspaces: vi.fn(),
   listRecentWorkspaces: vi.fn(),
   scanRoot: vi.fn(),
+  stopWatching: vi.fn(),
+  watchWorkspace: vi.fn(),
 }));
 
 const openMock = vi.mocked(open);
@@ -33,6 +37,8 @@ const openWorkspaceApiMock = vi.mocked(openWorkspaceApi);
 const listWorkspacesMock = vi.mocked(listWorkspaces);
 const listRecentWorkspacesMock = vi.mocked(listRecentWorkspaces);
 const scanRootMock = vi.mocked(scanRoot);
+const stopWatchingMock = vi.mocked(stopWatching);
+const watchWorkspaceMock = vi.mocked(watchWorkspace);
 
 const notesTree: FileTreeNode[] = [{ name: "a.md", path: "C:\\notes\\a.md", kind: "markdown" }];
 
@@ -53,6 +59,10 @@ beforeEach(() => {
   listWorkspacesMock.mockReset();
   listRecentWorkspacesMock.mockReset();
   scanRootMock.mockReset();
+  stopWatchingMock.mockReset();
+  stopWatchingMock.mockResolvedValue(undefined);
+  watchWorkspaceMock.mockReset();
+  watchWorkspaceMock.mockResolvedValue(undefined);
   listWorkspacesMock.mockResolvedValue([]);
   listRecentWorkspacesMock.mockResolvedValue([]);
   useWorkspaceStore.setState({ workspace: null, treeByMount: {}, error: null });

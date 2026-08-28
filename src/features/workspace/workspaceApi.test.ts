@@ -3,7 +3,15 @@ import { beforeEach, expect, test, vi } from "vitest";
 
 import type { FileTreeNode } from "../files/fileTypes";
 import type { WorkspaceConfig } from "./workspaceConfig";
-import { createWorkspace, listRecentWorkspaces, listWorkspaces, openWorkspace, scanRoot } from "./workspaceApi";
+import {
+  createWorkspace,
+  listRecentWorkspaces,
+  listWorkspaces,
+  openWorkspace,
+  scanRoot,
+  stopWatching,
+  watchWorkspace,
+} from "./workspaceApi";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
@@ -108,6 +116,38 @@ test("openWorkspace invokes open_workspace with the id argument shape", async ()
   expect(invokeMock).toHaveBeenCalledTimes(1);
   expect(invokeMock).toHaveBeenCalledWith("open_workspace", { id: "ws-1" });
   expect(result).toEqual(config);
+});
+
+test("watchWorkspace invokes watch_workspace with the workspace id argument shape", async () => {
+  invokeMock.mockResolvedValue(undefined);
+
+  await watchWorkspace("ws-1");
+
+  expect(invokeMock).toHaveBeenCalledTimes(1);
+  expect(invokeMock).toHaveBeenCalledWith("watch_workspace", { workspaceId: "ws-1" });
+});
+
+test("stopWatching invokes stop_watching_cmd with no arguments", async () => {
+  invokeMock.mockResolvedValue(undefined);
+
+  await stopWatching();
+
+  expect(invokeMock).toHaveBeenCalledTimes(1);
+  expect(invokeMock).toHaveBeenCalledWith("stop_watching_cmd");
+});
+
+test("watchWorkspace propagates invoke errors", async () => {
+  invokeMock.mockRejectedValue(new Error("boom"));
+
+  await expect(watchWorkspace("ws-1")).rejects.toThrow("boom");
+  expect(invokeMock).toHaveBeenCalledWith("watch_workspace", { workspaceId: "ws-1" });
+});
+
+test("stopWatching propagates invoke errors", async () => {
+  invokeMock.mockRejectedValue(new Error("boom"));
+
+  await expect(stopWatching()).rejects.toThrow("boom");
+  expect(invokeMock).toHaveBeenCalledWith("stop_watching_cmd");
 });
 
 test("createWorkspace propagates invoke errors", async () => {

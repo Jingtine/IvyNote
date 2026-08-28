@@ -7,8 +7,10 @@ import {
   createWorkspace as createWorkspaceApi,
   openWorkspace as openWorkspaceApi,
   scanRoot,
+  stopWatching,
   updateMountExclusions as updateMountExclusionsApi,
   updateWorkspaceExclusions as updateWorkspaceExclusionsApi,
+  watchWorkspace,
 } from "./workspaceApi";
 
 interface WorkspaceState {
@@ -29,6 +31,23 @@ interface WorkspaceState {
 function toErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   return String(err);
+}
+
+/**
+ * Fire-and-forget watcher lifecycle call: a failure must never block the
+ * workspace action it runs alongside, so it is surfaced through the store's
+ * non-blocking error channel instead.
+ */
+function watchOrReport(workspaceId: string): void {
+  void watchWorkspace(workspaceId).catch((err) => {
+    useWorkspaceStore.setState({ error: toErrorMessage(err) });
+  });
+}
+
+function stopWatchingOrReport(): void {
+  void stopWatching().catch((err) => {
+    useWorkspaceStore.setState({ error: toErrorMessage(err) });
+  });
 }
 
 function effectiveExclusions(workspace: WorkspaceConfig, mount: MountConfig): string[] {
@@ -56,6 +75,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         treeByMount: { [initialMountPath]: tree },
         error: null,
       });
+      watchOrReport(created.id);
     } catch (err) {
       set({ workspace: previous, error: toErrorMessage(err) });
     }
@@ -70,11 +90,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         trees[mount.path] = await scanRoot(mount.path, effectiveExclusions(config, mount));
       }
       set({ workspace: config, treeByMount: trees, error: null });
+      watchOrReport(config.id);
     } catch (err) {
       set({ workspace: previousWorkspace, treeByMount: previousTrees, error: toErrorMessage(err) });
     }
   },
   switchToWelcome: () => {
+    stopWatchingOrReport();
     set({ workspace: null, treeByMount: {}, error: null });
   },
   addMount: async (path, permission) => {
@@ -88,6 +110,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         treeByMount: { ...get().treeByMount, [path]: tree },
         error: null,
       });
+      watchOrReport(workspace.id);
     } catch (err) {
       set({ error: toErrorMessage(err) });
     }
@@ -101,6 +124,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       workspace: { ...workspace, mounts: workspace.mounts.filter((mount) => mount.path !== path) },
       treeByMount,
     });
+    watchOrReport(workspace.id);
   },
   setMountPermission: async (path, permission) => {
     const workspace = get().workspace;
@@ -113,6 +137,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         ),
       },
     });
+    watchOrReport(workspace.id);
   },
   updateMountExclusions: async (path, exclusions) => {
     const workspace = get().workspace;

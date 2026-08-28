@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test, vi } from "vitest";
 
-import { scanRoot } from "../workspace/workspaceApi";
+import { scanRoot, stopWatching, watchWorkspace } from "../workspace/workspaceApi";
 import type { MountConfig } from "../workspace/workspaceConfig";
 import { useWorkspaceStore } from "../workspace/workspaceStore";
 import {
@@ -29,6 +29,8 @@ vi.mock("../workspace/workspaceApi", () => ({
   listWorkspaces: vi.fn(),
   listRecentWorkspaces: vi.fn(),
   scanRoot: vi.fn(),
+  stopWatching: vi.fn(),
+  watchWorkspace: vi.fn(),
 }));
 
 const createFolderMock = vi.mocked(createFolder);
@@ -37,6 +39,8 @@ const renamePathMock = vi.mocked(renamePath);
 const movePathMock = vi.mocked(movePath);
 const deleteToTrashMock = vi.mocked(deleteToTrash);
 const scanRootMock = vi.mocked(scanRoot);
+const stopWatchingMock = vi.mocked(stopWatching);
+const watchWorkspaceMock = vi.mocked(watchWorkspace);
 
 const workspaceTree: FileTreeNode[] = [
   {
@@ -114,6 +118,10 @@ beforeEach(() => {
   movePathMock.mockReset();
   deleteToTrashMock.mockReset();
   scanRootMock.mockReset();
+  stopWatchingMock.mockReset();
+  stopWatchingMock.mockResolvedValue(undefined);
+  watchWorkspaceMock.mockReset();
+  watchWorkspaceMock.mockResolvedValue(undefined);
   useWorkspaceStore.setState({ workspace: null, treeByMount: {}, error: null });
 });
 

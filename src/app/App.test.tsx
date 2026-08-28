@@ -19,6 +19,8 @@ import {
   listWorkspaces,
   openWorkspace,
   scanRoot,
+  stopWatching,
+  watchWorkspace,
 } from "../features/workspace/workspaceApi";
 import { useWorkspaceStore } from "../features/workspace/workspaceStore";
 
@@ -33,6 +35,8 @@ vi.mock("../features/workspace/workspaceApi", () => ({
   listWorkspaces: vi.fn(),
   listRecentWorkspaces: vi.fn(),
   scanRoot: vi.fn(),
+  stopWatching: vi.fn(),
+  watchWorkspace: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
@@ -50,6 +54,8 @@ const createWorkspaceApiMock = vi.mocked(createWorkspace);
 const openWorkspaceApiMock = vi.mocked(openWorkspace);
 const listWorkspacesMock = vi.mocked(listWorkspaces);
 const listRecentWorkspacesMock = vi.mocked(listRecentWorkspaces);
+const stopWatchingMock = vi.mocked(stopWatching);
+const watchWorkspaceMock = vi.mocked(watchWorkspace);
 const dialogOpenMock = vi.mocked(open);
 const listenMock = vi.mocked(listen);
 
@@ -106,6 +112,10 @@ beforeEach(() => {
   openWorkspaceApiMock.mockReset();
   listWorkspacesMock.mockReset();
   listRecentWorkspacesMock.mockReset();
+  stopWatchingMock.mockReset();
+  stopWatchingMock.mockResolvedValue(undefined);
+  watchWorkspaceMock.mockReset();
+  watchWorkspaceMock.mockResolvedValue(undefined);
   dialogOpenMock.mockReset();
   listenMock.mockReset();
   listenMock.mockResolvedValue(() => {});

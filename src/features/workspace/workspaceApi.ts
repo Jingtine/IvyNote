@@ -25,6 +25,14 @@ export async function openWorkspace(id: string): Promise<WorkspaceConfig> {
   return invoke<WorkspaceConfig>("open_workspace", { id });
 }
 
+export async function watchWorkspace(workspaceId: string): Promise<void> {
+  return invoke("watch_workspace", { workspaceId });
+}
+
+export async function stopWatching(): Promise<void> {
+  return invoke("stop_watching_cmd");
+}
+
 export async function updateMountExclusions(
   workspaceId: string,
   path: string,
