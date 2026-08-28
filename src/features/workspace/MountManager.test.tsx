@@ -3,10 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test, vi } from "vitest";
 import { open } from "@tauri-apps/plugin-dialog";
 
-import type { WorkspaceConfig } from "./workspaceConfig";
+import type { MountConfig, WorkspaceConfig } from "./workspaceConfig";
 import { MountManager } from "./MountManager";
 import {
+  addMount,
   scanRoot,
+  setMountPermission,
   stopWatching,
   updateMountExclusions,
   updateWorkspaceExclusions,
@@ -19,19 +21,24 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 }));
 
 vi.mock("./workspaceApi", () => ({
+  addMount: vi.fn(),
   createWorkspace: vi.fn(),
   openWorkspace: vi.fn(),
   listWorkspaces: vi.fn(),
   listRecentWorkspaces: vi.fn(),
+  removeMount: vi.fn(),
   scanRoot: vi.fn(),
+  setMountPermission: vi.fn(),
   stopWatching: vi.fn(),
   updateMountExclusions: vi.fn(),
   updateWorkspaceExclusions: vi.fn(),
   watchWorkspace: vi.fn(),
 }));
 
+const addMountApiMock = vi.mocked(addMount);
 const openMock = vi.mocked(open);
 const scanRootMock = vi.mocked(scanRoot);
+const setMountPermissionApiMock = vi.mocked(setMountPermission);
 const stopWatchingMock = vi.mocked(stopWatching);
 const updateMountExclusionsApiMock = vi.mocked(updateMountExclusions);
 const updateWorkspaceExclusionsApiMock = vi.mocked(updateWorkspaceExclusions);
@@ -50,9 +57,34 @@ function makeWorkspace(overrides: Partial<WorkspaceConfig> = {}): WorkspaceConfi
   };
 }
 
+function currentConfig(): WorkspaceConfig {
+  const workspace = useWorkspaceStore.getState().workspace;
+  if (workspace === null) {
+    throw new Error("no workspace in store");
+  }
+  return workspace;
+}
+
 beforeEach(() => {
+  addMountApiMock.mockReset();
+  addMountApiMock.mockImplementation(async (_id: string, path: string, permission: MountConfig["permission"]) => {
+    const current = currentConfig();
+    return { ...current, mounts: [...current.mounts, { path, permission }] };
+  });
   openMock.mockReset();
   scanRootMock.mockReset();
+  setMountPermissionApiMock.mockReset();
+  setMountPermissionApiMock.mockImplementation(
+    async (_id: string, path: string, permission: MountConfig["permission"]) => {
+      const current = currentConfig();
+      return {
+        ...current,
+        mounts: current.mounts.map((mount) =>
+          mount.path === path ? { ...mount, permission } : mount,
+        ),
+      };
+    },
+  );
   stopWatchingMock.mockReset();
   stopWatchingMock.mockResolvedValue(undefined);
   updateMountExclusionsApiMock.mockReset();

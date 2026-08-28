@@ -4,9 +4,12 @@ import type { FileTreeNode } from "../files/fileTypes";
 import type { MountConfig, MountPermission, WorkspaceConfig } from "./workspaceConfig";
 import { DEFAULT_EXCLUSIONS } from "./workspaceConfig";
 import {
+  addMount as addMountApi,
   createWorkspace as createWorkspaceApi,
   openWorkspace as openWorkspaceApi,
+  removeMount as removeMountApi,
   scanRoot,
+  setMountPermission as setMountPermissionApi,
   stopWatching,
   updateMountExclusions as updateMountExclusionsApi,
   updateWorkspaceExclusions as updateWorkspaceExclusionsApi,
@@ -102,13 +105,26 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   addMount: async (path, permission) => {
     const workspace = get().workspace;
     if (workspace === null) return;
-    const mount: MountConfig = { path, permission };
     try {
-      const tree = await scanRoot(path, effectiveExclusions(workspace, mount));
+      const updated = await addMountApi(workspace.id, path, permission);
+      const mount = updated.mounts.find((mount) => mount.path === path);
+      let scanError: string | null = null;
+      let tree: FileTreeNode[] | undefined;
+      if (
+        mount !== undefined &&
+        (mount.permission === "read-write" || mount.permission === "read-only")
+      ) {
+        try {
+          tree = await scanRoot(path, effectiveExclusions(updated, mount));
+        } catch (err) {
+          scanError = toErrorMessage(err);
+        }
+      }
       set({
-        workspace: { ...workspace, mounts: [...workspace.mounts, mount] },
-        treeByMount: { ...get().treeByMount, [path]: tree },
-        error: null,
+        workspace: updated,
+        treeByMount:
+          tree !== undefined ? { ...get().treeByMount, [path]: tree } : get().treeByMount,
+        error: scanError,
       });
       watchOrReport(workspace.id);
     } catch (err) {
@@ -118,26 +134,26 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   removeMount: async (path) => {
     const workspace = get().workspace;
     if (workspace === null) return;
-    const treeByMount = { ...get().treeByMount };
-    delete treeByMount[path];
-    set({
-      workspace: { ...workspace, mounts: workspace.mounts.filter((mount) => mount.path !== path) },
-      treeByMount,
-    });
-    watchOrReport(workspace.id);
+    try {
+      const updated = await removeMountApi(workspace.id, path);
+      const treeByMount = { ...get().treeByMount };
+      delete treeByMount[path];
+      set({ workspace: updated, treeByMount, error: null });
+      watchOrReport(workspace.id);
+    } catch (err) {
+      set({ error: toErrorMessage(err) });
+    }
   },
   setMountPermission: async (path, permission) => {
     const workspace = get().workspace;
     if (workspace === null) return;
-    set({
-      workspace: {
-        ...workspace,
-        mounts: workspace.mounts.map((mount) =>
-          mount.path === path ? { ...mount, permission } : mount,
-        ),
-      },
-    });
-    watchOrReport(workspace.id);
+    try {
+      const updated = await setMountPermissionApi(workspace.id, path, permission);
+      set({ workspace: updated, error: null });
+      watchOrReport(workspace.id);
+    } catch (err) {
+      set({ error: toErrorMessage(err) });
+    }
   },
   updateMountExclusions: async (path, exclusions) => {
     const workspace = get().workspace;

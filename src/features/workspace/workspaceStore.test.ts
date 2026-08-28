@@ -3,10 +3,13 @@ import { beforeEach, expect, test, vi } from "vitest";
 import type { FileTreeNode } from "../files/fileTypes";
 import type { WorkspaceConfig } from "./workspaceConfig";
 import {
+  addMount as addMountApi,
   createWorkspace as createWorkspaceApi,
   listWorkspaces,
   openWorkspace as openWorkspaceApi,
+  removeMount as removeMountApi,
   scanRoot,
+  setMountPermission as setMountPermissionApi,
   stopWatching,
   updateMountExclusions as updateMountExclusionsApi,
   updateWorkspaceExclusions as updateWorkspaceExclusionsApi,
@@ -15,20 +18,26 @@ import {
 import { useWorkspaceStore } from "./workspaceStore";
 
 vi.mock("./workspaceApi", () => ({
+  addMount: vi.fn(),
   createWorkspace: vi.fn(),
   listWorkspaces: vi.fn(),
   openWorkspace: vi.fn(),
+  removeMount: vi.fn(),
   scanRoot: vi.fn(),
+  setMountPermission: vi.fn(),
   stopWatching: vi.fn(),
   updateMountExclusions: vi.fn(),
   updateWorkspaceExclusions: vi.fn(),
   watchWorkspace: vi.fn(),
 }));
 
+const addMountApiMock = vi.mocked(addMountApi);
 const createWorkspaceApiMock = vi.mocked(createWorkspaceApi);
 const listWorkspacesMock = vi.mocked(listWorkspaces);
 const openWorkspaceApiMock = vi.mocked(openWorkspaceApi);
+const removeMountApiMock = vi.mocked(removeMountApi);
 const scanRootMock = vi.mocked(scanRoot);
+const setMountPermissionApiMock = vi.mocked(setMountPermissionApi);
 const stopWatchingMock = vi.mocked(stopWatching);
 const updateMountExclusionsApiMock = vi.mocked(updateMountExclusionsApi);
 const updateWorkspaceExclusionsApiMock = vi.mocked(updateWorkspaceExclusionsApi);
@@ -56,10 +65,13 @@ const archiveTree: FileTreeNode[] = [
 ];
 
 beforeEach(() => {
+  addMountApiMock.mockReset();
   createWorkspaceApiMock.mockReset();
   listWorkspacesMock.mockReset();
   openWorkspaceApiMock.mockReset();
+  removeMountApiMock.mockReset();
   scanRootMock.mockReset();
+  setMountPermissionApiMock.mockReset();
   stopWatchingMock.mockReset();
   stopWatchingMock.mockResolvedValue(undefined);
   updateMountExclusionsApiMock.mockReset();
@@ -202,40 +214,55 @@ test("a scanner error on open leaves the workspace untouched and records the err
   expect(state.error).toBe("scan failed");
 });
 
-test("addMount appends the mount, scans it, and updates treeByMount", async () => {
+test("addMount persists via the API, adopts the returned config, scans, and updates treeByMount", async () => {
   const config = makeWorkspace();
   useWorkspaceStore.setState({
     workspace: config,
     treeByMount: { "C:\\notes": notesTree },
   });
+  const updated = makeWorkspace({
+    mounts: [
+      { path: "C:\\notes", permission: "read-write" },
+      { path: "D:\\wiki", permission: "read-only" },
+      { path: "D:\\archive", permission: "excluded" },
+      { path: "D:\\vault", permission: "read-write" },
+    ],
+  });
+  addMountApiMock.mockResolvedValue(updated);
   scanRootMock.mockResolvedValue(archiveTree);
 
   await useWorkspaceStore.getState().addMount("D:\\vault", "read-write");
 
+  expect(addMountApiMock).toHaveBeenCalledTimes(1);
+  expect(addMountApiMock).toHaveBeenCalledWith("ws-1", "D:\\vault", "read-write");
   expect(scanRootMock).toHaveBeenCalledWith("D:\\vault", [".git", "node_modules"]);
   const state = useWorkspaceStore.getState();
-  expect(state.workspace?.mounts).toEqual([
-    { path: "C:\\notes", permission: "read-write" },
-    { path: "D:\\wiki", permission: "read-only" },
-    { path: "D:\\archive", permission: "excluded" },
-    { path: "D:\\vault", permission: "read-write" },
-  ]);
+  expect(state.workspace).toEqual(updated);
   expect(state.treeByMount["D:\\vault"]).toEqual(archiveTree);
   expect(state.treeByMount["C:\\notes"]).toEqual(notesTree);
 });
 
-test("addMount with a failing scan keeps the prior mounts and trees and records the error", async () => {
+test("addMount with a failing scan keeps the persisted config but records the error", async () => {
   const config = makeWorkspace();
   useWorkspaceStore.setState({
     workspace: config,
     treeByMount: { "C:\\notes": notesTree },
   });
+  const updated = makeWorkspace({
+    mounts: [
+      { path: "C:\\notes", permission: "read-write" },
+      { path: "D:\\wiki", permission: "read-only" },
+      { path: "D:\\archive", permission: "excluded" },
+      { path: "D:\\vault", permission: "read-write" },
+    ],
+  });
+  addMountApiMock.mockResolvedValue(updated);
   scanRootMock.mockRejectedValue(new Error("scan failed"));
 
   await useWorkspaceStore.getState().addMount("D:\\vault", "read-write");
 
   const state = useWorkspaceStore.getState();
-  expect(state.workspace?.mounts).toEqual(config.mounts);
+  expect(state.workspace).toEqual(updated);
   expect(state.treeByMount).toEqual({ "C:\\notes": notesTree });
   expect(state.error).toBe("scan failed");
 });
@@ -246,6 +273,15 @@ test("addMount re-syncs the watcher with the workspace id", async () => {
     workspace: config,
     treeByMount: { "C:\\notes": notesTree },
   });
+  const updated = makeWorkspace({
+    mounts: [
+      { path: "C:\\notes", permission: "read-write" },
+      { path: "D:\\wiki", permission: "read-only" },
+      { path: "D:\\archive", permission: "excluded" },
+      { path: "D:\\vault", permission: "read-write" },
+    ],
+  });
+  addMountApiMock.mockResolvedValue(updated);
   scanRootMock.mockResolvedValue(archiveTree);
 
   await useWorkspaceStore.getState().addMount("D:\\vault", "read-write");
@@ -254,20 +290,54 @@ test("addMount re-syncs the watcher with the workspace id", async () => {
   expect(watchWorkspaceMock).toHaveBeenCalledWith("ws-1");
 });
 
-test("removeMount removes the mount and its tree", async () => {
+test("addMount watches only after the persisted config with the new mount is in place", async () => {
+  const config = makeWorkspace();
+  useWorkspaceStore.setState({
+    workspace: config,
+    treeByMount: { "C:\\notes": notesTree },
+  });
+  const updated = makeWorkspace({
+    mounts: [
+      { path: "C:\\notes", permission: "read-write" },
+      { path: "D:\\wiki", permission: "read-only" },
+      { path: "D:\\archive", permission: "excluded" },
+      { path: "D:\\vault", permission: "read-write" },
+    ],
+  });
+  addMountApiMock.mockResolvedValue(updated);
+  scanRootMock.mockResolvedValue(archiveTree);
+  let mountsAtWatchTime: string[] = [];
+  watchWorkspaceMock.mockImplementation(() => {
+    mountsAtWatchTime = useWorkspaceStore.getState().workspace?.mounts.map((mount) => mount.path) ?? [];
+    return Promise.resolve();
+  });
+
+  await useWorkspaceStore.getState().addMount("D:\\vault", "read-write");
+
+  expect(mountsAtWatchTime).toContain("D:\\vault");
+  expect(watchWorkspaceMock).toHaveBeenCalledWith("ws-1");
+});
+
+test("removeMount persists via the API, adopts the returned config, and removes the tree", async () => {
   const config = makeWorkspace();
   useWorkspaceStore.setState({
     workspace: config,
     treeByMount: { "C:\\notes": notesTree, "D:\\wiki": wikiTree },
   });
+  const updated = makeWorkspace({
+    mounts: [
+      { path: "C:\\notes", permission: "read-write" },
+      { path: "D:\\archive", permission: "excluded" },
+    ],
+  });
+  removeMountApiMock.mockResolvedValue(updated);
 
   await useWorkspaceStore.getState().removeMount("D:\\wiki");
 
+  expect(removeMountApiMock).toHaveBeenCalledTimes(1);
+  expect(removeMountApiMock).toHaveBeenCalledWith("ws-1", "D:\\wiki");
   const state = useWorkspaceStore.getState();
-  expect(state.workspace?.mounts.map((mount) => mount.path)).toEqual([
-    "C:\\notes",
-    "D:\\archive",
-  ]);
+  expect(state.workspace).toEqual(updated);
   expect(state.treeByMount).toEqual({ "C:\\notes": notesTree });
 });
 
@@ -277,6 +347,13 @@ test("removeMount re-syncs the watcher after removing the mount", async () => {
     workspace: config,
     treeByMount: { "C:\\notes": notesTree, "D:\\wiki": wikiTree },
   });
+  const updated = makeWorkspace({
+    mounts: [
+      { path: "C:\\notes", permission: "read-write" },
+      { path: "D:\\archive", permission: "excluded" },
+    ],
+  });
+  removeMountApiMock.mockResolvedValue(updated);
 
   await useWorkspaceStore.getState().removeMount("D:\\wiki");
 
@@ -290,26 +367,44 @@ test("setMountPermission re-syncs the watcher after the permission change", asyn
     workspace: config,
     treeByMount: { "C:\\notes": notesTree },
   });
+  const updated = makeWorkspace({
+    mounts: [
+      { path: "C:\\notes", permission: "excluded" },
+      { path: "D:\\wiki", permission: "read-only" },
+      { path: "D:\\archive", permission: "excluded" },
+    ],
+  });
+  setMountPermissionApiMock.mockResolvedValue(updated);
 
   await useWorkspaceStore.getState().setMountPermission("C:\\notes", "excluded");
 
+  expect(setMountPermissionApiMock).toHaveBeenCalledTimes(1);
+  expect(setMountPermissionApiMock).toHaveBeenCalledWith("ws-1", "C:\\notes", "excluded");
   expect(watchWorkspaceMock).toHaveBeenCalledTimes(1);
   expect(watchWorkspaceMock).toHaveBeenCalledWith("ws-1");
 });
 
-test("setMountPermission updates the mount without rescansing", async () => {
+test("setMountPermission persists via the API and updates the mount without rescansing", async () => {
   const config = makeWorkspace();
   useWorkspaceStore.setState({
     workspace: config,
     treeByMount: { "C:\\notes": notesTree },
   });
+  const updated = makeWorkspace({
+    mounts: [
+      { path: "C:\\notes", permission: "read-only" },
+      { path: "D:\\wiki", permission: "read-only" },
+      { path: "D:\\archive", permission: "excluded" },
+    ],
+  });
+  setMountPermissionApiMock.mockResolvedValue(updated);
 
   await useWorkspaceStore.getState().setMountPermission("C:\\notes", "read-only");
 
+  expect(setMountPermissionApiMock).toHaveBeenCalledWith("ws-1", "C:\\notes", "read-only");
   expect(scanRootMock).not.toHaveBeenCalled();
   const state = useWorkspaceStore.getState();
-  expect(state.workspace?.mounts[0]).toEqual({ path: "C:\\notes", permission: "read-only" });
-  expect(state.workspace?.mounts[1]).toEqual({ path: "D:\\wiki", permission: "read-only" });
+  expect(state.workspace).toEqual(updated);
   expect(state.treeByMount["C:\\notes"]).toEqual(notesTree);
 });
 
@@ -363,6 +458,13 @@ test("refreshTree drops trees for mounts excluded after a permission change", as
     workspace: config,
     treeByMount: { "C:\\notes": notesTree, "D:\\wiki": wikiTree },
   });
+  const excluded = makeWorkspace({
+    mounts: [
+      { path: "C:\\notes", permission: "excluded" },
+      { path: "D:\\wiki", permission: "read-only" },
+    ],
+  });
+  setMountPermissionApiMock.mockResolvedValue(excluded);
 
   await useWorkspaceStore.getState().setMountPermission("C:\\notes", "excluded");
   const refreshedWiki: FileTreeNode[] = [

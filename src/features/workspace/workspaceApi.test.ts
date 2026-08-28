@@ -4,11 +4,14 @@ import { beforeEach, expect, test, vi } from "vitest";
 import type { FileTreeNode } from "../files/fileTypes";
 import type { WorkspaceConfig } from "./workspaceConfig";
 import {
+  addMount,
   createWorkspace,
   listRecentWorkspaces,
   listWorkspaces,
   openWorkspace,
+  removeMount,
   scanRoot,
+  setMountPermission,
   stopWatching,
   watchWorkspace,
 } from "./workspaceApi";
@@ -162,4 +165,95 @@ test("openWorkspace propagates invoke errors", async () => {
 
   await expect(openWorkspace("missing")).rejects.toThrow("boom");
   expect(invokeMock).toHaveBeenCalledWith("open_workspace", { id: "missing" });
+});
+
+test("addMount invokes add_mount with the camelCase argument shape", async () => {
+  const config: WorkspaceConfig = {
+    schemaVersion: 1,
+    id: "ws-1",
+    name: "Personal",
+    mounts: [{ path: "C:\\notes", permission: "read-write" }],
+  };
+  invokeMock.mockResolvedValue(config);
+
+  const result = await addMount("ws-1", "C:\\notes", "read-write");
+
+  expect(invokeMock).toHaveBeenCalledTimes(1);
+  expect(invokeMock).toHaveBeenCalledWith("add_mount", {
+    workspaceId: "ws-1",
+    path: "C:\\notes",
+    permission: "read-write",
+  });
+  expect(result).toEqual(config);
+});
+
+test("removeMount invokes remove_mount with the workspace id and path", async () => {
+  const config: WorkspaceConfig = {
+    schemaVersion: 1,
+    id: "ws-1",
+    name: "Personal",
+    mounts: [],
+  };
+  invokeMock.mockResolvedValue(config);
+
+  const result = await removeMount("ws-1", "C:\\notes");
+
+  expect(invokeMock).toHaveBeenCalledTimes(1);
+  expect(invokeMock).toHaveBeenCalledWith("remove_mount", {
+    workspaceId: "ws-1",
+    path: "C:\\notes",
+  });
+  expect(result).toEqual(config);
+});
+
+test("setMountPermission invokes set_mount_permission with the camelCase argument shape", async () => {
+  const config: WorkspaceConfig = {
+    schemaVersion: 1,
+    id: "ws-1",
+    name: "Personal",
+    mounts: [{ path: "C:\\notes", permission: "read-only" }],
+  };
+  invokeMock.mockResolvedValue(config);
+
+  const result = await setMountPermission("ws-1", "C:\\notes", "read-only");
+
+  expect(invokeMock).toHaveBeenCalledTimes(1);
+  expect(invokeMock).toHaveBeenCalledWith("set_mount_permission", {
+    workspaceId: "ws-1",
+    path: "C:\\notes",
+    permission: "read-only",
+  });
+  expect(result).toEqual(config);
+});
+
+test("addMount propagates invoke errors", async () => {
+  invokeMock.mockRejectedValue(new Error("boom"));
+
+  await expect(addMount("ws-1", "C:\\notes", "read-write")).rejects.toThrow("boom");
+  expect(invokeMock).toHaveBeenCalledWith("add_mount", {
+    workspaceId: "ws-1",
+    path: "C:\\notes",
+    permission: "read-write",
+  });
+});
+
+test("removeMount propagates invoke errors", async () => {
+  invokeMock.mockRejectedValue(new Error("boom"));
+
+  await expect(removeMount("ws-1", "C:\\notes")).rejects.toThrow("boom");
+  expect(invokeMock).toHaveBeenCalledWith("remove_mount", {
+    workspaceId: "ws-1",
+    path: "C:\\notes",
+  });
+});
+
+test("setMountPermission propagates invoke errors", async () => {
+  invokeMock.mockRejectedValue(new Error("boom"));
+
+  await expect(setMountPermission("ws-1", "C:\\notes", "excluded")).rejects.toThrow("boom");
+  expect(invokeMock).toHaveBeenCalledWith("set_mount_permission", {
+    workspaceId: "ws-1",
+    path: "C:\\notes",
+    permission: "excluded",
+  });
 });

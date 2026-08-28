@@ -12,6 +12,7 @@ pub enum AppError {
     InvalidWorkspaceConfig { id: String },
     CrossMountMoveNotAllowed { path: String },
     MountNotFound { workspace_id: String, path: String },
+    DuplicateMount { path: String },
 }
 
 impl AppError {
@@ -65,6 +66,11 @@ impl AppError {
             AppError::MountNotFound { workspace_id, path } => AppErrorPayload {
                 code: "mountNotFound",
                 message: format!("Mount not found in workspace {workspace_id}: {path}"),
+                path: Some(path),
+            },
+            AppError::DuplicateMount { path } => AppErrorPayload {
+                code: "duplicateMount",
+                message: format!("Mount already exists: {path}"),
                 path: Some(path),
             },
         }
@@ -185,6 +191,17 @@ mod tests {
         assert_eq!(json["code"], "invalidWorkspaceConfig");
         assert!(json["message"].as_str().unwrap().contains("abc123"));
         assert!(json.get("path").is_none());
+    }
+
+    #[test]
+    fn duplicate_mount_serializes_stable_code_and_path() {
+        let error = AppError::DuplicateMount {
+            path: "D:\\Notes".to_string(),
+        };
+        let json = serde_json::to_value(&error).expect("error must serialize");
+        assert_eq!(json["code"], "duplicateMount");
+        assert_eq!(json["path"], "D:\\Notes");
+        assert!(json["message"].as_str().unwrap().contains("D:\\Notes"));
     }
 
     #[test]

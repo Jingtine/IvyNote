@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { FileTreeNode } from "../files/fileTypes";
-import type { WorkspaceConfig } from "./workspaceConfig";
+import type { MountPermission, WorkspaceConfig } from "./workspaceConfig";
 
 export async function scanRoot(
   root: string,
@@ -31,6 +31,29 @@ export async function watchWorkspace(workspaceId: string): Promise<void> {
 
 export async function stopWatching(): Promise<void> {
   return invoke("stop_watching_cmd");
+}
+
+export async function addMount(
+  workspaceId: string,
+  path: string,
+  permission: MountPermission,
+): Promise<WorkspaceConfig> {
+  return invoke<WorkspaceConfig>("add_mount", { workspaceId, path, permission });
+}
+
+export async function removeMount(
+  workspaceId: string,
+  path: string,
+): Promise<WorkspaceConfig> {
+  return invoke<WorkspaceConfig>("remove_mount", { workspaceId, path });
+}
+
+export async function setMountPermission(
+  workspaceId: string,
+  path: string,
+  permission: MountPermission,
+): Promise<WorkspaceConfig> {
+  return invoke<WorkspaceConfig>("set_mount_permission", { workspaceId, path, permission });
 }
 
 export async function updateMountExclusions(

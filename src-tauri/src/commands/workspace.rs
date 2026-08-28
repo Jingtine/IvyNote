@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use crate::errors::AppError;
 use crate::filesystem::model::FileTreeNode;
 use crate::filesystem::scanner::scan_markdown_tree;
-use crate::workspace::config::{self, WorkspaceConfig};
+use crate::workspace::config::{self, MountPermission, WorkspaceConfig};
 use crate::workspace::recent;
 
 /// Scans a workspace root directory for its Markdown file tree.
@@ -62,6 +62,48 @@ pub fn update_mount_exclusions(
     app: tauri::AppHandle,
 ) -> Result<WorkspaceConfig, AppError> {
     config::update_mount_exclusions(&app_data_dir(&app)?, &workspace_id, &path, &exclusions)
+}
+
+/// Appends a new mount to the workspace and persists it.
+///
+/// Thin delegation only: all config logic lives in the workspace config
+/// service. Returns the updated config so the frontend can rescan the new
+/// mount and re-sync its watchers with the persisted state.
+#[tauri::command]
+pub fn add_mount(
+    workspace_id: String,
+    path: String,
+    permission: MountPermission,
+    app: tauri::AppHandle,
+) -> Result<WorkspaceConfig, AppError> {
+    config::add_mount(&app_data_dir(&app)?, &workspace_id, &path, permission)
+}
+
+/// Removes a mount from the workspace and persists it.
+///
+/// Thin delegation only. Returns the updated config so the frontend can drop
+/// the removed mount's tree and re-sync its watchers.
+#[tauri::command]
+pub fn remove_mount(
+    workspace_id: String,
+    path: String,
+    app: tauri::AppHandle,
+) -> Result<WorkspaceConfig, AppError> {
+    config::remove_mount(&app_data_dir(&app)?, &workspace_id, &path)
+}
+
+/// Updates a mount's permission and persists it.
+///
+/// Thin delegation only. Returns the updated config so the frontend can adopt
+/// the persisted permission without rescansing.
+#[tauri::command]
+pub fn set_mount_permission(
+    workspace_id: String,
+    path: String,
+    permission: MountPermission,
+    app: tauri::AppHandle,
+) -> Result<WorkspaceConfig, AppError> {
+    config::set_mount_permission(&app_data_dir(&app)?, &workspace_id, &path, permission)
 }
 
 /// Updates the workspace-level default exclusions and persists them.

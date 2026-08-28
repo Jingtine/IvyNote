@@ -18,10 +18,12 @@ import {
   listRecentWorkspaces,
   listWorkspaces,
   openWorkspace,
+  removeMount,
   scanRoot,
   stopWatching,
   watchWorkspace,
 } from "../features/workspace/workspaceApi";
+import type { WorkspaceConfig } from "../features/workspace/workspaceConfig";
 import { useWorkspaceStore } from "../features/workspace/workspaceStore";
 
 vi.mock("../features/files/fileApi", () => ({
@@ -30,11 +32,14 @@ vi.mock("../features/files/fileApi", () => ({
 }));
 
 vi.mock("../features/workspace/workspaceApi", () => ({
+  addMount: vi.fn(),
   createWorkspace: vi.fn(),
   openWorkspace: vi.fn(),
   listWorkspaces: vi.fn(),
   listRecentWorkspaces: vi.fn(),
+  removeMount: vi.fn(),
   scanRoot: vi.fn(),
+  setMountPermission: vi.fn(),
   stopWatching: vi.fn(),
   watchWorkspace: vi.fn(),
 }));
@@ -54,6 +59,7 @@ const createWorkspaceApiMock = vi.mocked(createWorkspace);
 const openWorkspaceApiMock = vi.mocked(openWorkspace);
 const listWorkspacesMock = vi.mocked(listWorkspaces);
 const listRecentWorkspacesMock = vi.mocked(listRecentWorkspaces);
+const removeMountApiMock = vi.mocked(removeMount);
 const stopWatchingMock = vi.mocked(stopWatching);
 const watchWorkspaceMock = vi.mocked(watchWorkspace);
 const dialogOpenMock = vi.mocked(open);
@@ -112,6 +118,16 @@ beforeEach(() => {
   openWorkspaceApiMock.mockReset();
   listWorkspacesMock.mockReset();
   listRecentWorkspacesMock.mockReset();
+  removeMountApiMock.mockReset();
+  removeMountApiMock.mockImplementation(
+    async (_id: string, path: string): Promise<WorkspaceConfig> => {
+      const workspace = useWorkspaceStore.getState().workspace;
+      if (workspace === null) {
+        throw new Error("no workspace in store");
+      }
+      return { ...workspace, mounts: workspace.mounts.filter((mount) => mount.path !== path) };
+    },
+  );
   stopWatchingMock.mockReset();
   stopWatchingMock.mockResolvedValue(undefined);
   watchWorkspaceMock.mockReset();

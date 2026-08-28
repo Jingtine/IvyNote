@@ -141,6 +141,76 @@ pub fn update_mount_exclusions(
     Ok(config)
 }
 
+/// Appends a new mount to the workspace and persists the config.
+///
+/// Rejects a mount whose path already exists (`DuplicateMount`). Returns the
+/// updated config so the frontend can rescan the new mount and re-sync watchers.
+pub fn add_mount(
+    app_data_dir: &Path,
+    workspace_id: &str,
+    path: &str,
+    permission: MountPermission,
+) -> Result<WorkspaceConfig, AppError> {
+    let mut config = load_workspace(app_data_dir, workspace_id)?;
+    if config.mounts.iter().any(|mount| mount.path == path) {
+        return Err(AppError::DuplicateMount {
+            path: path.to_string(),
+        });
+    }
+    config.mounts.push(MountConfig {
+        path: path.to_string(),
+        permission,
+        exclusions: None,
+    });
+    save_workspace(app_data_dir, &config)?;
+    Ok(config)
+}
+
+/// Removes a mount from the workspace and persists the config.
+///
+/// Unknown paths are rejected (`MountNotFound`). Returns the updated config.
+pub fn remove_mount(
+    app_data_dir: &Path,
+    workspace_id: &str,
+    path: &str,
+) -> Result<WorkspaceConfig, AppError> {
+    let mut config = load_workspace(app_data_dir, workspace_id)?;
+    let index = config
+        .mounts
+        .iter()
+        .position(|mount| mount.path == path)
+        .ok_or_else(|| AppError::MountNotFound {
+            workspace_id: workspace_id.to_string(),
+            path: path.to_string(),
+        })?;
+    config.mounts.remove(index);
+    save_workspace(app_data_dir, &config)?;
+    Ok(config)
+}
+
+/// Updates a mount's permission and persists the config.
+///
+/// Unknown paths are rejected (`MountNotFound`). Returns the updated config.
+pub fn set_mount_permission(
+    app_data_dir: &Path,
+    workspace_id: &str,
+    path: &str,
+    permission: MountPermission,
+) -> Result<WorkspaceConfig, AppError> {
+    let mut config = load_workspace(app_data_dir, workspace_id)?;
+    let mount = config
+        .mounts
+        .iter_mut()
+        .find(|mount| mount.path == path)
+        .ok_or_else(|| AppError::MountNotFound {
+            workspace_id: workspace_id.to_string(),
+            path: path.to_string(),
+        })?;
+    mount.permission = permission;
+    save_workspace(app_data_dir, &config)?;
+    Ok(config)
+}
+
 pub fn update_workspace_exclusions(
     app_data_dir: &Path,
     workspace_id: &str,
@@ -369,6 +439,121 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let ws = create_workspace(tmp.path(), "WS").unwrap();
         let err = update_mount_exclusions(tmp.path(), &ws.id, "NOPE", &[]).unwrap_err();
+        match err {
+            AppError::MountNotFound { workspace_id, path } => {
+                assert_eq!(workspace_id, ws.id);
+                assert_eq!(path, "NOPE");
+            }
+            other => panic!("expected MountNotFound, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn add_mount_appends_and_persists() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut ws = create_workspace(tmp.path(), "WS").unwrap();
+        ws.mounts.push(MountConfig {
+            path: "C:\\notes".into(),
+            permission: MountPermission::ReadWrite,
+            exclusions: None,
+        });
+        save_workspace(tmp.path(), &ws).unwrap();
+
+        let updated =
+            add_mount(tmp.path(), &ws.id, "D:\\vault", MountPermission::ReadOnly).unwrap();
+
+        assert_eq!(updated.mounts.len(), 2);
+        assert_eq!(updated.mounts[1].path, "D:\\vault");
+        assert_eq!(updated.mounts[1].permission, MountPermission::ReadOnly);
+        assert_eq!(updated.mounts[1].exclusions, None);
+        let loaded = load_workspace(tmp.path(), &ws.id).unwrap();
+        assert_eq!(loaded.mounts.len(), 2);
+        assert_eq!(loaded.mounts[1].permission, MountPermission::ReadOnly);
+    }
+
+    #[test]
+    fn add_mount_rejects_duplicate_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut ws = create_workspace(tmp.path(), "WS").unwrap();
+        ws.mounts.push(MountConfig {
+            path: "D:\\notes".into(),
+            permission: MountPermission::ReadWrite,
+            exclusions: None,
+        });
+        save_workspace(tmp.path(), &ws).unwrap();
+
+        let err =
+            add_mount(tmp.path(), &ws.id, "D:\\notes", MountPermission::ReadWrite).unwrap_err();
+        match err {
+            AppError::DuplicateMount { path } => assert_eq!(path, "D:\\notes"),
+            other => panic!("expected DuplicateMount, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn remove_mount_removes_and_persists() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut ws = create_workspace(tmp.path(), "WS").unwrap();
+        ws.mounts.push(MountConfig {
+            path: "D:\\notes".into(),
+            permission: MountPermission::ReadWrite,
+            exclusions: None,
+        });
+        ws.mounts.push(MountConfig {
+            path: "D:\\wiki".into(),
+            permission: MountPermission::ReadOnly,
+            exclusions: None,
+        });
+        save_workspace(tmp.path(), &ws).unwrap();
+
+        let updated = remove_mount(tmp.path(), &ws.id, "D:\\notes").unwrap();
+
+        assert_eq!(updated.mounts.len(), 1);
+        assert_eq!(updated.mounts[0].path, "D:\\wiki");
+        let loaded = load_workspace(tmp.path(), &ws.id).unwrap();
+        assert_eq!(loaded.mounts.len(), 1);
+    }
+
+    #[test]
+    fn remove_mount_unknown_path_returns_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = create_workspace(tmp.path(), "WS").unwrap();
+        let err = remove_mount(tmp.path(), &ws.id, "NOPE").unwrap_err();
+        match err {
+            AppError::MountNotFound { workspace_id, path } => {
+                assert_eq!(workspace_id, ws.id);
+                assert_eq!(path, "NOPE");
+            }
+            other => panic!("expected MountNotFound, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn set_mount_permission_updates_and_persists() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut ws = create_workspace(tmp.path(), "WS").unwrap();
+        ws.mounts.push(MountConfig {
+            path: "D:\\notes".into(),
+            permission: MountPermission::ReadWrite,
+            exclusions: None,
+        });
+        save_workspace(tmp.path(), &ws).unwrap();
+
+        let updated =
+            set_mount_permission(tmp.path(), &ws.id, "D:\\notes", MountPermission::Excluded)
+                .unwrap();
+
+        assert_eq!(updated.mounts[0].permission, MountPermission::Excluded);
+        let loaded = load_workspace(tmp.path(), &ws.id).unwrap();
+        assert_eq!(loaded.mounts[0].permission, MountPermission::Excluded);
+    }
+
+    #[test]
+    fn set_mount_permission_unknown_path_returns_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = create_workspace(tmp.path(), "WS").unwrap();
+        let err = set_mount_permission(tmp.path(), &ws.id, "NOPE", MountPermission::ReadOnly)
+            .unwrap_err();
         match err {
             AppError::MountNotFound { workspace_id, path } => {
                 assert_eq!(workspace_id, ws.id);
