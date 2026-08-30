@@ -25,8 +25,8 @@ export async function openWorkspace(id: string): Promise<WorkspaceConfig> {
   return invoke<WorkspaceConfig>("open_workspace", { id });
 }
 
-export async function watchWorkspace(workspaceId: string): Promise<void> {
-  return invoke("watch_workspace", { workspaceId });
+export async function watchWorkspace(workspaceId: string): Promise<number> {
+  return invoke<number>("watch_workspace", { workspaceId });
 }
 
 export async function stopWatching(): Promise<void> {

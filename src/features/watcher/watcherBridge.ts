@@ -3,6 +3,7 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 
 import { useEditorStore } from "../editor/editorStore";
 import { useWorkspaceStore } from "../workspace/workspaceStore";
+import { isPathWithinOrEqual } from "../../shared/utils/paths";
 import type { WatcherEvent } from "./watcherTypes";
 
 /** Subscribes to Rust `watcher://event` emissions and dispatches them. */
@@ -22,7 +23,7 @@ export function dispatchWatcherEvent(event: WatcherEvent): void {
       void useWorkspaceStore.getState().refreshTree();
       break;
     case "renamed": {
-      if (isActiveDocument(event.from)) {
+      if (isActiveDocumentRenamedFrom(event.from)) {
         useEditorStore.getState().handleWatcherRename(event.from, event.to);
       }
       void useWorkspaceStore.getState().refreshTree();
@@ -34,4 +35,11 @@ export function dispatchWatcherEvent(event: WatcherEvent): void {
 function isActiveDocument(path: string): boolean {
   const document = useEditorStore.getState().document;
   return document !== null && document.path === path;
+}
+
+/** True when `from` is the active document or one of its parent directories. */
+function isActiveDocumentRenamedFrom(from: string): boolean {
+  const document = useEditorStore.getState().document;
+  if (document === null) return false;
+  return isPathWithinOrEqual(document.path, from);
 }

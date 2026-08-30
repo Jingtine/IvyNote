@@ -20,11 +20,25 @@ pub fn read_markdown_file(path: String) -> Result<TextDocumentSnapshot, AppError
 
 /// Saves editor content back to the Markdown file atomically.
 ///
-/// Thin delegation only: all writing logic lives in the writer service.
+/// The save is gated on the mount holding `request.path` being read-write, so
+/// a read-only mount refuses saves exactly like the other file operations.
 #[tauri::command]
 pub fn save_markdown_file(
+    workspace_id: String,
+    request: SaveTextDocumentRequest,
+    app: tauri::AppHandle,
+) -> Result<SaveTextDocumentResult, AppError> {
+    let mounts = load_mounts(&app, &workspace_id)?;
+    save_guarded(&mounts, request)
+}
+
+/// Enforces read-write permission for `request.path`, then delegates to the
+/// writer. Read-only and excluded mounts refuse saves with `PermissionDenied`.
+fn save_guarded(
+    mounts: &[MountConfig],
     request: SaveTextDocumentRequest,
 ) -> Result<SaveTextDocumentResult, AppError> {
+    require_read_write(mounts, Path::new(&request.path))?;
     save_text_document(request)
 }
 
@@ -149,6 +163,7 @@ fn ensure_same_mount<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::filesystem::model::NewlineStyle;
     use crate::workspace::config::MountPermission;
 
     fn mount(path: &str, permission: MountPermission) -> MountConfig {
@@ -207,5 +222,57 @@ mod tests {
             AppError::CrossMountMoveNotAllowed { path } => assert_eq!(path, "A/x.md"),
             other => panic!("expected CrossMountMoveNotAllowed, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn save_guarded_denies_saving_to_a_read_only_mount() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ro = tmp.path().join("RO");
+        std::fs::create_dir_all(&ro).unwrap();
+        let file = ro.join("note.md");
+        std::fs::write(&file, b"original").unwrap();
+        let mounts = vec![mount(&ro.to_string_lossy(), MountPermission::ReadOnly)];
+        let request = SaveTextDocumentRequest {
+            path: file.to_string_lossy().into_owned(),
+            content: "hijacked".into(),
+            expected_modified_at_ms: 0,
+            expected_size: 0,
+            newline: NewlineStyle::Lf,
+            has_utf8_bom: false,
+        };
+
+        let err = save_guarded(&mounts, request).expect_err("save to read-only mount must fail");
+        match err {
+            AppError::PermissionDenied { .. } => {}
+            other => panic!("expected PermissionDenied, got {other:?}"),
+        }
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "original",
+            "the read-only file must remain untouched"
+        );
+    }
+
+    #[test]
+    fn save_guarded_allows_saving_to_a_read_write_mount() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("Notes");
+        std::fs::create_dir_all(&root).unwrap();
+        let file = root.join("note.md");
+        std::fs::write(&file, b"# Original\n").unwrap();
+        let mounts = vec![mount(&root.to_string_lossy(), MountPermission::ReadWrite)];
+
+        let snapshot = read_text_document(&file).expect("read must succeed");
+        let request = SaveTextDocumentRequest {
+            path: file.to_string_lossy().into_owned(),
+            content: "# Edited\n".into(),
+            expected_modified_at_ms: snapshot.modified_at_ms,
+            expected_size: snapshot.size,
+            newline: snapshot.newline,
+            has_utf8_bom: snapshot.has_utf8_bom,
+        };
+
+        save_guarded(&mounts, request).expect("save on a read-write mount must succeed");
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "# Edited\n");
     }
 }

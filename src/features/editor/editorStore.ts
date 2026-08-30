@@ -2,6 +2,8 @@ import { create } from "zustand";
 
 import { readMarkdownFile } from "../files/fileApi";
 import type { TextDocumentSnapshot } from "../files/fileTypes";
+import { remapPathPrefix } from "../../shared/utils/paths";
+import { useWorkspaceStore } from "../workspace/workspaceStore";
 import { isExternalModificationConflict, saveDocument } from "./saveDocument";
 
 function normalizeContent(content: string): string {
@@ -102,11 +104,18 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const { document, draft, dirty, fileMissing } = get();
     if (document === null || !dirty) return true;
     if (fileMissing) return false;
+    const workspace = useWorkspaceStore.getState().workspace;
+    const mount = workspace?.mounts.find((mount) => isPathWithinMount(document.path, mount.path));
+    if (mount !== undefined && mount.permission === "read-only") {
+      set({ saving: false, error: `Cannot save: ${document.path} is on a read-only mount.` });
+      return false;
+    }
     if (savePromise !== null) return savePromise;
+    const workspaceId = workspace?.id ?? "";
     const promise = (async (): Promise<boolean> => {
       set({ saving: true, conflict: false });
       try {
-        const result = await saveDocument(document, draft);
+        const result = await saveDocument(document, draft, workspaceId);
         get().replaceSnapshot({
           ...document,
           content: draft,
@@ -163,10 +172,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
   followRename: (from, to) => {
     const { document, pendingPath } = get();
-    if (document === null || document.path !== from) return;
+    if (document === null) return;
+    const remapped = remapPathPrefix(document.path, from, to);
+    if (remapped === null) return;
     set({
-      document: { ...document, path: to },
-      pendingPath: pendingPath === from ? to : pendingPath,
+      document: { ...document, path: remapped },
+      pendingPath:
+        pendingPath === null ? null : remapPathPrefix(pendingPath, from, to) ?? pendingPath,
       fileMissing: false,
     });
   },

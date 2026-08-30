@@ -135,7 +135,7 @@ beforeEach(() => {
   stopWatchingMock.mockReset();
   stopWatchingMock.mockResolvedValue(undefined);
   watchWorkspaceMock.mockReset();
-  watchWorkspaceMock.mockResolvedValue(undefined);
+  watchWorkspaceMock.mockResolvedValue(1);
   dialogOpenMock.mockReset();
   listenMock.mockReset();
   listenMock.mockResolvedValue(() => {});
@@ -210,6 +210,7 @@ test("Save and Open saves the draft and then opens the target file", async () =>
   await waitFor(() => expect(useEditorStore.getState().document?.path).toBe(B_PATH));
   expect(saveMarkdownDocumentMock).toHaveBeenCalledTimes(1);
   expect(saveMarkdownDocumentMock).toHaveBeenCalledWith(
+    "ws-1",
     expect.objectContaining({ path: A_PATH, content: "# A edited\n" }),
   );
   expect(useEditorStore.getState().dirty).toBe(false);
@@ -528,6 +529,7 @@ test("Save and Switch saves the draft before leaving the workspace", async () =>
 
   await waitFor(() => expect(useWorkspaceStore.getState().workspace).toBeNull());
   expect(saveMarkdownDocumentMock).toHaveBeenCalledWith(
+    "ws-1",
     expect.objectContaining({ path: A_PATH, content: "# A edited\n" }),
   );
 });
@@ -575,6 +577,7 @@ test("Save and Remove Mount saves the draft, removes the mount, and closes the d
 
   await waitFor(() => expect(useWorkspaceStore.getState().workspace?.mounts).toHaveLength(0));
   expect(saveMarkdownDocumentMock).toHaveBeenCalledWith(
+    "ws-1",
     expect.objectContaining({ path: A_PATH, content: "# A edited\n" }),
   );
   expect(useEditorStore.getState().document).toBeNull();

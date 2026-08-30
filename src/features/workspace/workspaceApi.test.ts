@@ -122,12 +122,13 @@ test("openWorkspace invokes open_workspace with the id argument shape", async ()
 });
 
 test("watchWorkspace invokes watch_workspace with the workspace id argument shape", async () => {
-  invokeMock.mockResolvedValue(undefined);
+  invokeMock.mockResolvedValue(2);
 
-  await watchWorkspace("ws-1");
+  const result = await watchWorkspace("ws-1");
 
   expect(invokeMock).toHaveBeenCalledTimes(1);
   expect(invokeMock).toHaveBeenCalledWith("watch_workspace", { workspaceId: "ws-1" });
+  expect(result).toBe(2);
 });
 
 test("stopWatching invokes stop_watching_cmd with no arguments", async () => {

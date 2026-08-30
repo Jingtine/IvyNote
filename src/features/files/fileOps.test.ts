@@ -73,7 +73,7 @@ beforeEach(() => {
   stopWatchingMock.mockReset();
   stopWatchingMock.mockResolvedValue(undefined);
   watchWorkspaceMock.mockReset();
-  watchWorkspaceMock.mockResolvedValue(undefined);
+  watchWorkspaceMock.mockResolvedValue(1);
   useWorkspaceStore.setState({ workspace: null, treeByMount: {}, error: null });
 });
 

@@ -101,6 +101,21 @@ test("a renamed event where from matches the active document triggers the editor
   );
 });
 
+test("a renamed event for a parent directory of the active document triggers the editor follow action", () => {
+  const refreshTree = vi.fn();
+  const state = editorState();
+  editorGetState.mockReturnValue(editorStateAsStore(state));
+  workspaceGetState.mockReturnValue(workspaceState(refreshTree));
+
+  dispatchWatcherEvent({
+    kind: "renamed",
+    from: "C:\\notes",
+    to: "C:\\notes-renamed",
+  });
+
+  expect(state.handleWatcherRename).toHaveBeenCalledWith("C:\\notes", "C:\\notes-renamed");
+});
+
 test("a renamed event that does not match the active document leaves the editor alone", () => {
   const refreshTree = vi.fn();
   const state = editorState();

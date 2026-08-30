@@ -96,7 +96,7 @@ beforeEach(() => {
   updateMountExclusionsApiMock.mockReset();
   updateWorkspaceExclusionsApiMock.mockReset();
   watchWorkspaceMock.mockReset();
-  watchWorkspaceMock.mockResolvedValue(undefined);
+  watchWorkspaceMock.mockResolvedValue(1);
   editorGetState.mockReset();
   editorGetState.mockReturnValue(
     editorStoreStub() as unknown as ReturnType<typeof useEditorStore.getState>,
@@ -162,7 +162,7 @@ test("createWorkspace watches only after the persisted config with the initial m
   let mountsAtWatchTime: string[] = [];
   watchWorkspaceMock.mockImplementation(() => {
     mountsAtWatchTime = useWorkspaceStore.getState().workspace?.mounts.map((mount) => mount.path) ?? [];
-    return Promise.resolve();
+    return Promise.resolve(1);
   });
 
   await useWorkspaceStore.getState().createWorkspace("Study", "C:\\notes");
@@ -243,6 +243,30 @@ test("a watcher start failure on open is non-blocking and surfaces the error", a
   expect(state.workspace).toEqual(config);
   expect(state.treeByMount).toEqual({ "C:\\notes": notesTree, "D:\\wiki": wikiTree });
   expect(state.error).toBe("watch failed");
+});
+
+test("a zero watcher count for a workspace with readable mounts records an alert error", async () => {
+  const config = makeWorkspace();
+  openWorkspaceApiMock.mockResolvedValue(config);
+  scanRootMock.mockResolvedValueOnce(notesTree).mockResolvedValueOnce(wikiTree);
+  watchWorkspaceMock.mockResolvedValue(0);
+
+  await useWorkspaceStore.getState().openWorkspace("ws-1");
+
+  const state = useWorkspaceStore.getState();
+  expect(state.workspace).toEqual(config);
+  expect(state.treeByMount).toEqual({ "C:\\notes": notesTree, "D:\\wiki": wikiTree });
+  expect(state.error).toContain("File watching failed");
+});
+
+test("a zero watcher count is not an error when the workspace has no readable mounts", async () => {
+  const config = makeWorkspace({ mounts: [{ path: "D:\\archive", permission: "excluded" }] });
+  openWorkspaceApiMock.mockResolvedValue(config);
+  watchWorkspaceMock.mockResolvedValue(0);
+
+  await useWorkspaceStore.getState().openWorkspace("ws-1");
+
+  expect(useWorkspaceStore.getState().error).toBeNull();
 });
 
 test("a scanner error on open leaves the workspace untouched and records the error", async () => {
@@ -355,7 +379,7 @@ test("addMount watches only after the persisted config with the new mount is in 
   let mountsAtWatchTime: string[] = [];
   watchWorkspaceMock.mockImplementation(() => {
     mountsAtWatchTime = useWorkspaceStore.getState().workspace?.mounts.map((mount) => mount.path) ?? [];
-    return Promise.resolve();
+    return Promise.resolve(1);
   });
 
   await useWorkspaceStore.getState().addMount("D:\\vault", "read-write");

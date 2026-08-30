@@ -90,7 +90,7 @@ beforeEach(() => {
   updateMountExclusionsApiMock.mockReset();
   updateWorkspaceExclusionsApiMock.mockReset();
   watchWorkspaceMock.mockReset();
-  watchWorkspaceMock.mockResolvedValue(undefined);
+  watchWorkspaceMock.mockResolvedValue(1);
   useWorkspaceStore.setState({
     workspace: makeWorkspace(),
     treeByMount: {},

@@ -51,7 +51,7 @@ test("readMarkdownFile propagates invoke errors", async () => {
   });
 });
 
-test("saveMarkdownDocument invokes save_markdown_file with the request argument shape", async () => {
+test("saveMarkdownDocument invokes save_markdown_file with the workspaceId and request argument shape", async () => {
   const request: SaveTextDocumentRequest = {
     path: "C:\\notes\\hello.md",
     content: "# Hello\nEdited\n",
@@ -62,10 +62,10 @@ test("saveMarkdownDocument invokes save_markdown_file with the request argument 
   };
   invokeMock.mockResolvedValue({ modifiedAtMs: 1_700_000_000_500, size: 16 });
 
-  const result = await saveMarkdownDocument(request);
+  const result = await saveMarkdownDocument("ws-1", request);
 
   expect(invokeMock).toHaveBeenCalledTimes(1);
-  expect(invokeMock).toHaveBeenCalledWith("save_markdown_file", { request });
+  expect(invokeMock).toHaveBeenCalledWith("save_markdown_file", { workspaceId: "ws-1", request });
   expect(result).toEqual({ modifiedAtMs: 1_700_000_000_500, size: 16 });
 });
 
@@ -73,7 +73,7 @@ test("saveMarkdownDocument propagates invoke errors", async () => {
   invokeMock.mockRejectedValue(new Error("conflict"));
 
   await expect(
-    saveMarkdownDocument({
+    saveMarkdownDocument("ws-1", {
       path: "C:\\notes\\hello.md",
       content: "# Hello\n",
       expectedModifiedAtMs: 1,

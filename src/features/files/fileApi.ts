@@ -10,9 +10,10 @@ export async function readMarkdownFile(path: string): Promise<TextDocumentSnapsh
 }
 
 export async function saveMarkdownDocument(
+  workspaceId: string,
   request: SaveTextDocumentRequest,
 ): Promise<SaveTextDocumentResult> {
-  return invoke<SaveTextDocumentResult>("save_markdown_file", { request });
+  return invoke<SaveTextDocumentResult>("save_markdown_file", { workspaceId, request });
 }
 
 export async function createFolder(

@@ -40,12 +40,25 @@ function toErrorMessage(err: unknown): string {
 /**
  * Fire-and-forget watcher lifecycle call: a failure must never block the
  * workspace action it runs alongside, so it is surfaced through the store's
- * non-blocking error channel instead.
+ * non-blocking error channel instead. A zero-watcher result on a workspace
+ * that still has readable mounts is treated as a failure (live updates are
+ * silently off otherwise) and recorded the same way.
  */
 function watchOrReport(workspaceId: string): void {
-  void watchWorkspace(workspaceId).catch((err) => {
-    useWorkspaceStore.setState({ error: toErrorMessage(err) });
-  });
+  void watchWorkspace(workspaceId).then(
+    (started) => {
+      const workspace = useWorkspaceStore.getState().workspace;
+      if (workspace === null || workspace.id !== workspaceId) return;
+      if (started === 0 && readableMounts(workspace.mounts).length >= 1) {
+        useWorkspaceStore.setState({
+          error: "File watching failed: no workspace mounts could be watched. Use Refresh.",
+        });
+      }
+    },
+    (err) => {
+      useWorkspaceStore.setState({ error: toErrorMessage(err) });
+    },
+  );
 }
 
 function stopWatchingOrReport(): void {

@@ -36,33 +36,51 @@ impl Default for WatcherState {
 /// `mounts` is a slice of `(mount_path, effective_exclusions)`. Mounts that do
 /// not exist on disk are logged and skipped rather than failing the whole
 /// watch, so a temporarily unavailable mount does not take down the others.
+/// Returns the number of watchers actually started so the caller can surface
+/// a fully-failed watch instead of silently going dark.
 pub fn start_watching(
     app: &tauri::AppHandle,
     mounts: &[(String, Vec<String>)],
-) -> Result<(), AppError> {
+) -> Result<usize, AppError> {
     stop_watching(app)?;
     let state = app.state::<WatcherState>();
     let mut watchers = state.0.lock().unwrap();
+    let emit = {
+        let app = app.clone();
+        move |event: WatcherEvent| {
+            if let Err(e) = app.emit("watcher://event", &event) {
+                log::error!("failed to emit watcher event: {e}");
+            }
+        }
+    };
+    Ok(start_watchers(&mut watchers, mounts, emit))
+}
+
+/// Starts one recursive watcher per mount, skipping mounts that do not exist
+/// on disk, and returns how many watchers were successfully started. `emit` is
+/// cloned for each mount so every debounce thread reports into the same sink.
+fn start_watchers(
+    watchers: &mut Vec<RecommendedWatcher>,
+    mounts: &[(String, Vec<String>)],
+    emit: impl Fn(WatcherEvent) + Send + Clone + 'static,
+) -> usize {
+    let mut started = 0;
     for (mount_path, exclusions) in mounts {
         let mount = PathBuf::from(mount_path);
         if !mount.is_dir() {
             log::warn!("skip watching non-existent mount: {mount_path}");
             continue;
         }
-        let emit = {
-            let app = app.clone();
-            move |event: WatcherEvent| {
-                if let Err(e) = app.emit("watcher://event", &event) {
-                    log::error!("failed to emit watcher event: {e}");
-                }
-            }
-        };
+        let emit = emit.clone();
         match spawn_mount_watcher(mount, exclusions.clone(), DEBOUNCE_WINDOW_MS, emit) {
-            Ok(watcher) => watchers.push(watcher),
+            Ok(watcher) => {
+                watchers.push(watcher);
+                started += 1;
+            }
             Err(e) => log::warn!("failed to start watcher for {mount_path}: {e:?}"),
         }
     }
-    Ok(())
+    started
 }
 
 /// Drops all active watchers. Their debounce threads exit once their channels
@@ -723,5 +741,28 @@ mod tests {
             saw_created,
             "expected a Created event for {expected} within 10s"
         );
+    }
+
+    #[test]
+    fn start_watchers_skips_non_existent_mounts_and_counts_started_ones() {
+        let dir = tempfile::tempdir().expect("temp dir must be creatable");
+        let missing = dir.path().join("missing");
+        let mut watchers: Vec<RecommendedWatcher> = Vec::new();
+        let emit = |_event: WatcherEvent| {};
+
+        let count = start_watchers(
+            &mut watchers,
+            &[
+                (dir.path().to_string_lossy().into_owned(), Vec::new()),
+                (missing.to_string_lossy().into_owned(), Vec::new()),
+            ],
+            emit,
+        );
+
+        assert_eq!(
+            count, 1,
+            "the non-existent mount must be skipped, leaving exactly one watcher"
+        );
+        assert_eq!(watchers.len(), 1);
     }
 }

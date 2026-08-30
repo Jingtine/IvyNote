@@ -123,8 +123,11 @@ pub fn update_workspace_exclusions(
 ///
 /// Excluded mounts are skipped; each watched mount uses its effective
 /// exclusions (mount override, else workspace default, else built-in).
+/// Returns the number of watchers actually started so the frontend can
+/// surface a fully-failed watch (0 watchers on a workspace with readable
+/// mounts) instead of silently stopping live updates.
 #[tauri::command]
-pub fn watch_workspace(workspace_id: String, app: tauri::AppHandle) -> Result<(), AppError> {
+pub fn watch_workspace(workspace_id: String, app: tauri::AppHandle) -> Result<usize, AppError> {
     let config = config::load_workspace(&app_data_dir(&app)?, &workspace_id)?;
     let mounts: Vec<(String, Vec<String>)> = config
         .mounts
