@@ -8,6 +8,11 @@ pub enum AppError {
     UnsupportedEncoding { path: String },
     ExternalModificationConflict { path: String },
     Io { message: String },
+    WorkspaceNotFound { id: String },
+    InvalidWorkspaceConfig { id: String },
+    CrossMountMoveNotAllowed { path: String },
+    MountNotFound { workspace_id: String, path: String },
+    DuplicateMount { path: String },
 }
 
 impl AppError {
@@ -42,6 +47,31 @@ impl AppError {
                 code: "io",
                 message: message.clone(),
                 path: None,
+            },
+            AppError::WorkspaceNotFound { id } => AppErrorPayload {
+                code: "workspaceNotFound",
+                message: format!("Workspace not found: {id}"),
+                path: None,
+            },
+            AppError::InvalidWorkspaceConfig { id } => AppErrorPayload {
+                code: "invalidWorkspaceConfig",
+                message: format!("Invalid workspace config: {id}"),
+                path: None,
+            },
+            AppError::CrossMountMoveNotAllowed { path } => AppErrorPayload {
+                code: "crossMountMoveNotAllowed",
+                message: format!("Cannot move across mounts: {path}"),
+                path: Some(path),
+            },
+            AppError::MountNotFound { workspace_id, path } => AppErrorPayload {
+                code: "mountNotFound",
+                message: format!("Mount not found in workspace {workspace_id}: {path}"),
+                path: Some(path),
+            },
+            AppError::DuplicateMount { path } => AppErrorPayload {
+                code: "duplicateMount",
+                message: format!("Mount already exists: {path}"),
+                path: Some(path),
             },
         }
     }
@@ -128,5 +158,61 @@ mod tests {
         assert_eq!(json["code"], "io");
         assert_eq!(json["message"], "disk unavailable");
         assert!(json.get("path").is_none());
+    }
+
+    #[test]
+    fn workspace_not_found_serializes_stable_code_and_message_without_path() {
+        let error = AppError::WorkspaceNotFound {
+            id: "abc123".to_string(),
+        };
+        let json = serde_json::to_value(&error).expect("error must serialize");
+        assert_eq!(json["code"], "workspaceNotFound");
+        assert!(json["message"].as_str().unwrap().contains("abc123"));
+        assert!(json.get("path").is_none());
+    }
+
+    #[test]
+    fn cross_mount_move_not_allowed_serializes_stable_code_and_path() {
+        let error = AppError::CrossMountMoveNotAllowed {
+            path: "notes.md".to_string(),
+        };
+        let json = serde_json::to_value(&error).expect("error must serialize");
+        assert_eq!(json["code"], "crossMountMoveNotAllowed");
+        assert_eq!(json["path"], "notes.md");
+        assert!(json["message"].as_str().unwrap().contains("notes.md"));
+    }
+
+    #[test]
+    fn invalid_workspace_config_serializes_stable_code_and_message_without_path() {
+        let error = AppError::InvalidWorkspaceConfig {
+            id: "abc123".to_string(),
+        };
+        let json = serde_json::to_value(&error).expect("error must serialize");
+        assert_eq!(json["code"], "invalidWorkspaceConfig");
+        assert!(json["message"].as_str().unwrap().contains("abc123"));
+        assert!(json.get("path").is_none());
+    }
+
+    #[test]
+    fn duplicate_mount_serializes_stable_code_and_path() {
+        let error = AppError::DuplicateMount {
+            path: "D:\\Notes".to_string(),
+        };
+        let json = serde_json::to_value(&error).expect("error must serialize");
+        assert_eq!(json["code"], "duplicateMount");
+        assert_eq!(json["path"], "D:\\Notes");
+        assert!(json["message"].as_str().unwrap().contains("D:\\Notes"));
+    }
+
+    #[test]
+    fn mount_not_found_serializes_stable_code_and_path() {
+        let error = AppError::MountNotFound {
+            workspace_id: "ws-1".to_string(),
+            path: "D:\\Notes".to_string(),
+        };
+        let json = serde_json::to_value(&error).expect("error must serialize");
+        assert_eq!(json["code"], "mountNotFound");
+        assert_eq!(json["path"], "D:\\Notes");
+        assert!(json["message"].as_str().unwrap().contains("D:\\Notes"));
     }
 }

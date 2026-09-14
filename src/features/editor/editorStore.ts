@@ -2,6 +2,8 @@ import { create } from "zustand";
 
 import { readMarkdownFile } from "../files/fileApi";
 import type { TextDocumentSnapshot } from "../files/fileTypes";
+import { remapPathPrefix } from "../../shared/utils/paths";
+import { useWorkspaceStore } from "../workspace/workspaceStore";
 import { isExternalModificationConflict, saveDocument } from "./saveDocument";
 
 function normalizeContent(content: string): string {
@@ -11,6 +13,11 @@ function normalizeContent(content: string): string {
 function toErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
+}
+
+function isPathWithinMount(path: string, mountPath: string): boolean {
+  if (path === mountPath) return true;
+  return path.startsWith(mountPath + "\\") || path.startsWith(mountPath + "/");
 }
 
 let savePromise: Promise<boolean> | null = null;
@@ -36,6 +43,18 @@ export interface EditorState {
   discardAndOpenPending(): Promise<void>;
   cancelOpenRequest(): void;
   setFileMissing(value: boolean): void;
+  /** Follows an external rename of the active document (a follow, not a reload). */
+  handleWatcherRename(from: string, to: string): void;
+  /** Follows a rename of the document from `from` to `to`, keeping its content. */
+  followRename(from: string, to: string): void;
+  /**
+   * Closes the active document when it lives inside the mount being removed.
+   * Returns true when nothing is dirty (removal may proceed), false when the
+   * caller must invoke the unsaved-changes guard first.
+   */
+  closeIfInMount(mountPath: string): boolean;
+  /** Resets all open-document state (used when the user discards changes). */
+  clearDocument(): void;
 }
 
 export const useEditorStore = create<EditorState>((set, get) => ({
@@ -85,11 +104,18 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const { document, draft, dirty, fileMissing } = get();
     if (document === null || !dirty) return true;
     if (fileMissing) return false;
+    const workspace = useWorkspaceStore.getState().workspace;
+    const mount = workspace?.mounts.find((mount) => isPathWithinMount(document.path, mount.path));
+    if (mount !== undefined && mount.permission === "read-only") {
+      set({ saving: false, error: `Cannot save: ${document.path} is on a read-only mount.` });
+      return false;
+    }
     if (savePromise !== null) return savePromise;
+    const workspaceId = workspace?.id ?? "";
     const promise = (async (): Promise<boolean> => {
       set({ saving: true, conflict: false });
       try {
-        const result = await saveDocument(document, draft);
+        const result = await saveDocument(document, draft, workspaceId);
         get().replaceSnapshot({
           ...document,
           content: draft,
@@ -136,8 +162,49 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const { pendingPath } = get();
     if (pendingPath === null) return;
     set({ pendingPath: null });
+    get().clearDocument();
     await get().loadDocument(pendingPath);
   },
   cancelOpenRequest: () => set({ pendingPath: null }),
   setFileMissing: (value) => set({ fileMissing: value }),
+  handleWatcherRename: (from, to) => {
+    get().followRename(from, to);
+  },
+  followRename: (from, to) => {
+    const { document, pendingPath } = get();
+    if (document === null) return;
+    const remapped = remapPathPrefix(document.path, from, to);
+    if (remapped === null) return;
+    set({
+      document: { ...document, path: remapped },
+      pendingPath:
+        pendingPath === null ? null : remapPathPrefix(pendingPath, from, to) ?? pendingPath,
+      fileMissing: false,
+    });
+  },
+  closeIfInMount: (mountPath) => {
+    const { document, dirty } = get();
+    if (document === null || !isPathWithinMount(document.path, mountPath)) return true;
+    if (dirty) return false;
+    set({
+      document: null,
+      draft: "",
+      dirty: false,
+      error: null,
+      fileMissing: false,
+    });
+    return true;
+  },
+  clearDocument: () => {
+    set({
+      document: null,
+      draft: "",
+      dirty: false,
+      loading: false,
+      error: null,
+      conflict: false,
+      pendingPath: null,
+      fileMissing: false,
+    });
+  },
 }));

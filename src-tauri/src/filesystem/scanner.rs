@@ -4,18 +4,19 @@ use std::path::{Path, PathBuf};
 use crate::errors::AppError;
 use crate::filesystem::model::{FileNodeKind, FileTreeNode};
 
-/// Directory names that are never recursed into during a workspace scan.
-const IGNORED_DIRECTORY_NAMES: [&str; 5] = [".git", "node_modules", "dist", "build", "target"];
-
 /// Scans the given root directory and returns a tree of Markdown files.
 ///
+/// Directories whose name appears in `exclusions` are never recursed into.
 /// The root is canonicalized once; recursion never leaves that root because
 /// symlinked directories are skipped. Directories only appear in the result
 /// when they contain at least one nested Markdown file. File contents are
 /// never read during the scan.
-pub fn scan_markdown_tree(root: &Path) -> Result<Vec<FileTreeNode>, AppError> {
+pub fn scan_markdown_tree(
+    root: &Path,
+    exclusions: &[String],
+) -> Result<Vec<FileTreeNode>, AppError> {
     let canonical_root = canonicalize_root(root)?;
-    Ok(scan_directory(&canonical_root)?.unwrap_or_default())
+    Ok(scan_directory(&canonical_root, exclusions)?.unwrap_or_default())
 }
 
 fn canonicalize_root(root: &Path) -> Result<PathBuf, AppError> {
@@ -57,7 +58,10 @@ fn display_path(path: &Path) -> Result<String, AppError> {
 }
 
 /// Scans one directory, returning `None` when it holds no Markdown files.
-fn scan_directory(dir: &Path) -> Result<Option<Vec<FileTreeNode>>, AppError> {
+fn scan_directory(
+    dir: &Path,
+    exclusions: &[String],
+) -> Result<Option<Vec<FileTreeNode>>, AppError> {
     let entries = fs::read_dir(dir).map_err(|e| io_error(e, dir))?;
 
     let mut nodes = Vec::new();
@@ -75,10 +79,10 @@ fn scan_directory(dir: &Path) -> Result<Option<Vec<FileTreeNode>>, AppError> {
 
         let name = entry.file_name().to_string_lossy().into_owned();
         if file_type.is_dir() {
-            if IGNORED_DIRECTORY_NAMES.contains(&name.as_str()) {
+            if exclusions.contains(&name) {
                 continue;
             }
-            if let Some(children) = scan_directory(&path)? {
+            if let Some(children) = scan_directory(&path, exclusions)? {
                 nodes.push(FileTreeNode {
                     name,
                     path: display_path(&path)?,
@@ -161,7 +165,8 @@ mod tests {
         write_file(root.path(), "ignore.txt", "not markdown");
         write_file(root.path(), ".git/hidden.md", "# hidden");
 
-        let tree = scan_markdown_tree(root.path()).expect("scan must succeed");
+        let tree = scan_markdown_tree(root.path(), &crate::workspace::config::default_exclusions())
+            .expect("scan must succeed");
         assert_eq!(node_names(&tree), names_of_layout_root());
 
         let notes = find(&tree, "Notes").expect("Notes dir must be present");
@@ -182,7 +187,7 @@ mod tests {
         let root = tempfile::tempdir().expect("temp root must be creatable");
         write_file(root.path(), "Notes/hello.md", "# hello");
 
-        let tree = scan_markdown_tree(root.path()).expect("scan must succeed");
+        let tree = scan_markdown_tree(root.path(), &[]).expect("scan must succeed");
         let notes = find(&tree, "Notes").expect("Notes dir must be present");
         let expected_notes_path: PathBuf = fs::canonicalize(root.path())
             .expect("root canonicalizes")
@@ -202,7 +207,7 @@ mod tests {
         write_file(root.path(), "Empty/placeholder.txt", "no markdown here");
         write_file(root.path(), "Deeper/StillEmpty/.keep", "");
 
-        let tree = scan_markdown_tree(root.path()).expect("scan must succeed");
+        let tree = scan_markdown_tree(root.path(), &[]).expect("scan must succeed");
         assert!(tree.is_empty(), "no markdown anywhere, got: {tree:?}");
     }
 
@@ -213,11 +218,37 @@ mod tests {
             write_file(root.path(), &format!("{ignored}/lib.md"), "# lib");
         }
 
-        let tree = scan_markdown_tree(root.path()).expect("scan must succeed");
+        let tree = scan_markdown_tree(root.path(), &crate::workspace::config::default_exclusions())
+            .expect("scan must succeed");
         assert!(
             tree.is_empty(),
             "ignored dirs must not appear, got: {tree:?}"
         );
+    }
+
+    #[test]
+    fn custom_exclusions_are_honored() {
+        let root = tempfile::tempdir().unwrap();
+        write_file(root.path(), "Custom/keep.md", "# keep");
+        write_file(root.path(), "Custom/tmp/drop.md", "# drop");
+        let exclusions = vec!["tmp".to_string()];
+        let tree = scan_markdown_tree(root.path(), &exclusions).unwrap();
+        let custom = find(&tree, "Custom").expect("Custom dir present");
+        // tmp excluded => only keep.md remains under Custom
+        let children = custom.children.as_ref().unwrap();
+        assert_eq!(node_names(children), vec!["keep.md".to_string()]);
+    }
+
+    #[test]
+    fn default_exclusions_still_ignore_v01_five() {
+        let root = tempfile::tempdir().unwrap();
+        for ignored in [".git", "node_modules", "dist", "build", "target"] {
+            write_file(root.path(), &format!("{ignored}/lib.md"), "# lib");
+        }
+        write_file(root.path(), "keep.md", "# keep");
+        let exclusions = crate::workspace::config::default_exclusions();
+        let tree = scan_markdown_tree(root.path(), &exclusions).unwrap();
+        assert_eq!(node_names(&tree), vec!["keep.md".to_string()]);
     }
 
     #[test]
@@ -228,7 +259,7 @@ mod tests {
         write_file(root.path(), "zeta/nested.md", "");
         write_file(root.path(), "ALPHA/x.md", "");
 
-        let tree = scan_markdown_tree(root.path()).expect("scan must succeed");
+        let tree = scan_markdown_tree(root.path(), &[]).expect("scan must succeed");
         assert_eq!(node_names(&tree), vec!["ALPHA", "zeta", "A.md", "b.md"]);
     }
 
@@ -236,7 +267,7 @@ mod tests {
     fn nonexistent_root_returns_file_not_found() {
         let root = tempfile::tempdir().expect("temp root must be creatable");
         let missing = root.path().join("does-not-exist");
-        let err = scan_markdown_tree(&missing).expect_err("missing root must fail");
+        let err = scan_markdown_tree(&missing, &[]).expect_err("missing root must fail");
         match err {
             AppError::FileNotFound { path } => {
                 assert!(path.contains("does-not-exist"), "path was {path}");
@@ -251,7 +282,7 @@ mod tests {
         let file = root.path().join("file.md");
         fs::write(&file, "# hi").expect("file must be writable");
 
-        let err = scan_markdown_tree(&file).expect_err("file root must fail");
+        let err = scan_markdown_tree(&file, &[]).expect_err("file root must fail");
         match err {
             AppError::InvalidPath { path } => {
                 assert!(path.ends_with("file.md"), "path was {path}");
@@ -280,7 +311,7 @@ mod tests {
         }
 
         write_file(root.path(), "real.md", "# real");
-        let tree = scan_markdown_tree(root.path()).expect("scan must succeed");
+        let tree = scan_markdown_tree(root.path(), &[]).expect("scan must succeed");
         assert_eq!(
             node_names(&tree),
             vec!["real.md".to_string()],

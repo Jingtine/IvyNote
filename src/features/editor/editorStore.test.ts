@@ -7,6 +7,7 @@ import type {
 } from "../files/fileTypes";
 import { readMarkdownFile, saveMarkdownDocument } from "../files/fileApi";
 import { useEditorStore } from "./editorStore";
+import { useWorkspaceStore } from "../workspace/workspaceStore";
 
 vi.mock("../files/fileApi", () => ({
   readMarkdownFile: vi.fn(),
@@ -49,6 +50,16 @@ beforeEach(() => {
     conflict: false,
     pendingPath: null,
     fileMissing: false,
+  });
+  useWorkspaceStore.setState({
+    workspace: {
+      schemaVersion: 1,
+      id: "ws-1",
+      name: "Personal",
+      mounts: [{ path: "C:\\notes", permission: "read-write" }],
+    },
+    treeByMount: {},
+    error: null,
   });
 });
 
@@ -178,7 +189,7 @@ test("save sends a request built from the original snapshot metadata", async () 
     hasUtf8Bom: true,
   };
   expect(saveMarkdownDocumentMock).toHaveBeenCalledTimes(1);
-  expect(saveMarkdownDocumentMock).toHaveBeenCalledWith(expected);
+  expect(saveMarkdownDocumentMock).toHaveBeenCalledWith("ws-1", expected);
 });
 
 test("successful save updates snapshot metadata and clears dirty", async () => {
@@ -316,6 +327,41 @@ test("loading another document resets the missing-on-disk state", async () => {
   expect(useEditorStore.getState().fileMissing).toBe(false);
 });
 
+test("handleWatcherRename follows a rename of the active document without losing the draft", async () => {
+  readMarkdownFileMock.mockResolvedValue(makeSnapshot());
+  await useEditorStore.getState().loadDocument("C:\\notes\\hello.md");
+  useEditorStore.getState().setDraft("# Edited\n");
+  useEditorStore.getState().setFileMissing(true);
+
+  useEditorStore
+    .getState()
+    .handleWatcherRename("C:\\notes\\hello.md", "C:\\notes\\renamed.md");
+
+  const state = useEditorStore.getState();
+  expect(state.document?.path).toBe("C:\\notes\\renamed.md");
+  expect(state.draft).toBe("# Edited\n");
+  expect(state.dirty).toBe(true);
+  expect(state.fileMissing).toBe(false);
+});
+
+test("handleWatcherRename leaves the document alone when the rename is for another file", async () => {
+  readMarkdownFileMock.mockResolvedValue(makeSnapshot());
+  await useEditorStore.getState().loadDocument("C:\\notes\\hello.md");
+
+  useEditorStore
+    .getState()
+    .handleWatcherRename("C:\\notes\\other.md", "C:\\notes\\moved.md");
+
+  const state = useEditorStore.getState();
+  expect(state.document?.path).toBe("C:\\notes\\hello.md");
+  expect(state.fileMissing).toBe(false);
+});
+
+test("handleWatcherRename is a no-op when no document is open", () => {
+  useEditorStore.getState().handleWatcherRename("C:\\notes\\hello.md", "C:\\notes\\moved.md");
+  expect(useEditorStore.getState().document).toBeNull();
+});
+
 test("saveAndOpenPending keeps the draft and the pending request when the file is missing on disk", async () => {
   readMarkdownFileMock.mockResolvedValueOnce(makeSnapshot());
   await useEditorStore.getState().loadDocument("C:\\notes\\hello.md");
@@ -369,4 +415,190 @@ test("saveAndOpenPending joins an in-flight save instead of dead-ending", async 
   expect(state.pendingPath).toBeNull();
   expect(state.saving).toBe(false);
   expect(saveMarkdownDocumentMock).toHaveBeenCalledTimes(1);
+});
+
+test("followRename updates the active document path, keeping content, draft, and dirty without reloading", async () => {
+  readMarkdownFileMock.mockResolvedValue(makeSnapshot());
+  await useEditorStore.getState().loadDocument("C:\\notes\\hello.md");
+  useEditorStore.getState().setDraft("# Edited\n");
+  useEditorStore.getState().setFileMissing(true);
+
+  useEditorStore.getState().followRename("C:\\notes\\hello.md", "C:\\notes\\renamed.md");
+
+  const state = useEditorStore.getState();
+  expect(state.document?.path).toBe("C:\\notes\\renamed.md");
+  expect(state.document?.content).toBe("# Hello\n");
+  expect(state.draft).toBe("# Edited\n");
+  expect(state.dirty).toBe(true);
+  expect(state.fileMissing).toBe(false);
+  expect(readMarkdownFileMock).toHaveBeenCalledTimes(1);
+});
+
+test("followRename leaves the document untouched when it does not match the source path", async () => {
+  readMarkdownFileMock.mockResolvedValue(makeSnapshot());
+  await useEditorStore.getState().loadDocument("C:\\notes\\hello.md");
+  useEditorStore.getState().setFileMissing(true);
+
+  useEditorStore.getState().followRename("C:\\notes\\other.md", "C:\\notes\\moved.md");
+
+  const state = useEditorStore.getState();
+  expect(state.document?.path).toBe("C:\\notes\\hello.md");
+  expect(state.fileMissing).toBe(true);
+});
+
+test("followRename is a no-op when no document is open", () => {
+  useEditorStore.getState().followRename("C:\\notes\\hello.md", "C:\\notes\\moved.md");
+  expect(useEditorStore.getState().document).toBeNull();
+});
+
+test("save on a document under a read-only mount is refused without calling the backend", async () => {
+  useWorkspaceStore.setState({
+    workspace: {
+      schemaVersion: 1,
+      id: "ws-1",
+      name: "Personal",
+      mounts: [{ path: "D:\\wiki", permission: "read-only" }],
+    },
+    treeByMount: {},
+    error: null,
+  });
+  readMarkdownFileMock.mockResolvedValue(makeSnapshot({ path: "D:\\wiki\\b.md" }));
+  await useEditorStore.getState().loadDocument("D:\\wiki\\b.md");
+  useEditorStore.getState().setDraft("# Edited\n");
+
+  const saved = await useEditorStore.getState().save();
+
+  expect(saved).toBe(false);
+  expect(saveMarkdownDocumentMock).not.toHaveBeenCalled();
+  expect(useEditorStore.getState().dirty).toBe(true);
+  expect(useEditorStore.getState().draft).toBe("# Edited\n");
+  expect(useEditorStore.getState().error).toContain("read-only");
+});
+
+test("followRename remaps the document path when its parent directory is renamed", async () => {
+  readMarkdownFileMock.mockResolvedValue(makeSnapshot({ path: "C:\\notes\\sub\\a.md" }));
+  await useEditorStore.getState().loadDocument("C:\\notes\\sub\\a.md");
+  useEditorStore.getState().setDraft("# Edited\n");
+  useEditorStore.getState().setFileMissing(true);
+
+  useEditorStore.getState().followRename("C:\\notes\\sub", "C:\\notes\\renamed-sub");
+
+  const state = useEditorStore.getState();
+  expect(state.document?.path).toBe("C:\\notes\\renamed-sub\\a.md");
+  expect(state.document?.content).toBe("# Hello\n");
+  expect(state.draft).toBe("# Edited\n");
+  expect(state.dirty).toBe(true);
+  expect(state.fileMissing).toBe(false);
+  expect(readMarkdownFileMock).toHaveBeenCalledTimes(1);
+});
+
+test("followRename remaps a pending open request under a renamed parent", async () => {
+  readMarkdownFileMock.mockResolvedValue(makeSnapshot({ path: "C:\\notes\\sub\\a.md" }));
+  await useEditorStore.getState().loadDocument("C:\\notes\\sub\\a.md");
+  useEditorStore.getState().setDraft("# Edited\n");
+  useEditorStore.getState().requestOpenDocument("C:\\notes\\sub\\b.md");
+  expect(useEditorStore.getState().pendingPath).toBe("C:\\notes\\sub\\b.md");
+
+  useEditorStore.getState().followRename("C:\\notes\\sub", "C:\\notes\\renamed-sub");
+
+  expect(useEditorStore.getState().pendingPath).toBe("C:\\notes\\renamed-sub\\b.md");
+});
+
+test("followRename leaves the document untouched when the rename only shares a sibling prefix", async () => {
+  readMarkdownFileMock.mockResolvedValue(makeSnapshot());
+  await useEditorStore.getState().loadDocument("C:\\notes\\hello.md");
+  useEditorStore.getState().setFileMissing(true);
+
+  useEditorStore.getState().followRename("C:\\notes2", "C:\\notes2-renamed");
+
+  const state = useEditorStore.getState();
+  expect(state.document?.path).toBe("C:\\notes\\hello.md");
+  expect(state.fileMissing).toBe(true);
+});
+
+test("closeIfInMount closes a clean document inside the mount and returns true", async () => {
+  readMarkdownFileMock.mockResolvedValue(makeSnapshot());
+  await useEditorStore.getState().loadDocument("C:\\notes\\hello.md");
+
+  const closed = useEditorStore.getState().closeIfInMount("C:\\notes");
+
+  expect(closed).toBe(true);
+  const state = useEditorStore.getState();
+  expect(state.document).toBeNull();
+  expect(state.draft).toBe("");
+  expect(state.dirty).toBe(false);
+});
+
+test("closeIfInMount keeps a dirty document and returns false", async () => {
+  readMarkdownFileMock.mockResolvedValue(makeSnapshot());
+  await useEditorStore.getState().loadDocument("C:\\notes\\hello.md");
+  useEditorStore.getState().setDraft("# Edited\n");
+
+  const closed = useEditorStore.getState().closeIfInMount("C:\\notes");
+
+  expect(closed).toBe(false);
+  const state = useEditorStore.getState();
+  expect(state.document?.path).toBe("C:\\notes\\hello.md");
+  expect(state.draft).toBe("# Edited\n");
+  expect(state.dirty).toBe(true);
+});
+
+test("closeIfInMount returns true without closing when no document is open", () => {
+  expect(useEditorStore.getState().closeIfInMount("C:\\notes")).toBe(true);
+  expect(useEditorStore.getState().document).toBeNull();
+});
+
+test("closeIfInMount returns true without closing when the document is not inside the mount", async () => {
+  readMarkdownFileMock.mockResolvedValue(makeSnapshot());
+  await useEditorStore.getState().loadDocument("C:\\notes\\hello.md");
+
+  const closed = useEditorStore.getState().closeIfInMount("D:\\wiki");
+
+  expect(closed).toBe(true);
+  expect(useEditorStore.getState().document?.path).toBe("C:\\notes\\hello.md");
+});
+
+test("closeIfInMount does not treat a sibling path prefix as inside the mount", async () => {
+  readMarkdownFileMock.mockResolvedValue(makeSnapshot());
+  await useEditorStore.getState().loadDocument("C:\\notes\\hello.md");
+
+  const closed = useEditorStore.getState().closeIfInMount("C:\\notes2");
+
+  expect(closed).toBe(true);
+  expect(useEditorStore.getState().document?.path).toBe("C:\\notes\\hello.md");
+});
+
+test("clearDocument resets the document, draft, and dirty state", async () => {
+  readMarkdownFileMock.mockResolvedValue(makeSnapshot());
+  await useEditorStore.getState().loadDocument("C:\\notes\\hello.md");
+  useEditorStore.getState().setDraft("# Edited\n");
+  useEditorStore.getState().setFileMissing(true);
+  useEditorStore.getState().requestOpenDocument("C:\\notes\\other.md");
+
+  useEditorStore.getState().clearDocument();
+
+  const state = useEditorStore.getState();
+  expect(state.document).toBeNull();
+  expect(state.draft).toBe("");
+  expect(state.dirty).toBe(false);
+  expect(state.fileMissing).toBe(false);
+  expect(state.pendingPath).toBeNull();
+  expect(state.error).toBeNull();
+});
+
+test("discardAndOpenPending clears the discarded draft even when the next load fails", async () => {
+  readMarkdownFileMock.mockResolvedValueOnce(makeSnapshot());
+  await useEditorStore.getState().loadDocument("C:\\notes\\hello.md");
+  useEditorStore.getState().setDraft("# Edited\n");
+  readMarkdownFileMock.mockRejectedValueOnce(new Error("read failed"));
+
+  useEditorStore.getState().requestOpenDocument("C:\\notes\\other.md");
+  await useEditorStore.getState().discardAndOpenPending();
+
+  const state = useEditorStore.getState();
+  expect(state.document).toBeNull();
+  expect(state.draft).toBe("");
+  expect(state.dirty).toBe(false);
+  expect(state.pendingPath).toBeNull();
+  expect(state.error).toBe("read failed");
 });

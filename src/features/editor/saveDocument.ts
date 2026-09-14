@@ -35,8 +35,9 @@ export function buildSaveRequest(
 export async function saveDocument(
   snapshot: TextDocumentSnapshot,
   draft: string,
+  workspaceId: string,
 ): Promise<SaveTextDocumentResult> {
-  return saveMarkdownDocument(buildSaveRequest(snapshot, draft));
+  return saveMarkdownDocument(workspaceId, buildSaveRequest(snapshot, draft));
 }
 
 /** Matches the serialized shape of the Rust ExternalModificationConflict error. */

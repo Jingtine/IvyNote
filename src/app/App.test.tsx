@@ -2,6 +2,8 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import "@testing-library/jest-dom/vitest";
 import userEvent from "@testing-library/user-event";
 import { beforeAll, beforeEach, expect, test, vi } from "vitest";
+import { open } from "@tauri-apps/plugin-dialog";
+import { listen } from "@tauri-apps/api/event";
 
 import { App } from "./App";
 import { readMarkdownFile, saveMarkdownDocument } from "../features/files/fileApi";
@@ -11,7 +13,19 @@ import type {
   TextDocumentSnapshot,
 } from "../features/files/fileTypes";
 import { useEditorStore } from "../features/editor/editorStore";
-import { scanRoot } from "../features/workspace/workspaceApi";
+import { dispatchWatcherEvent } from "../features/watcher/watcherBridge";
+import {
+  addMount,
+  createWorkspace,
+  listRecentWorkspaces,
+  listWorkspaces,
+  openWorkspace,
+  removeMount,
+  scanRoot,
+  stopWatching,
+  watchWorkspace,
+} from "../features/workspace/workspaceApi";
+import type { WorkspaceConfig } from "../features/workspace/workspaceConfig";
 import { useWorkspaceStore } from "../features/workspace/workspaceStore";
 
 vi.mock("../features/files/fileApi", () => ({
@@ -20,12 +34,39 @@ vi.mock("../features/files/fileApi", () => ({
 }));
 
 vi.mock("../features/workspace/workspaceApi", () => ({
+  addMount: vi.fn(),
+  createWorkspace: vi.fn(),
+  openWorkspace: vi.fn(),
+  listWorkspaces: vi.fn(),
+  listRecentWorkspaces: vi.fn(),
+  removeMount: vi.fn(),
   scanRoot: vi.fn(),
+  setMountPermission: vi.fn(),
+  stopWatching: vi.fn(),
+  watchWorkspace: vi.fn(),
+}));
+
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  open: vi.fn(),
+}));
+
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn(),
 }));
 
 const readMarkdownFileMock = vi.mocked(readMarkdownFile);
 const saveMarkdownDocumentMock = vi.mocked(saveMarkdownDocument);
 const scanRootMock = vi.mocked(scanRoot);
+const addMountApiMock = vi.mocked(addMount);
+const createWorkspaceApiMock = vi.mocked(createWorkspace);
+const openWorkspaceApiMock = vi.mocked(openWorkspace);
+const listWorkspacesMock = vi.mocked(listWorkspaces);
+const listRecentWorkspacesMock = vi.mocked(listRecentWorkspaces);
+const removeMountApiMock = vi.mocked(removeMount);
+const stopWatchingMock = vi.mocked(stopWatching);
+const watchWorkspaceMock = vi.mocked(watchWorkspace);
+const dialogOpenMock = vi.mocked(open);
+const listenMock = vi.mocked(listen);
 
 const A_PATH = "C:\\notes\\a.md";
 const B_PATH = "C:\\notes\\b.md";
@@ -76,7 +117,31 @@ beforeEach(() => {
   readMarkdownFileMock.mockReset();
   saveMarkdownDocumentMock.mockReset();
   scanRootMock.mockReset();
+  addMountApiMock.mockReset();
+  createWorkspaceApiMock.mockReset();
+  openWorkspaceApiMock.mockReset();
+  listWorkspacesMock.mockReset();
+  listRecentWorkspacesMock.mockReset();
+  removeMountApiMock.mockReset();
+  removeMountApiMock.mockImplementation(
+    async (_id: string, path: string): Promise<WorkspaceConfig> => {
+      const workspace = useWorkspaceStore.getState().workspace;
+      if (workspace === null) {
+        throw new Error("no workspace in store");
+      }
+      return { ...workspace, mounts: workspace.mounts.filter((mount) => mount.path !== path) };
+    },
+  );
+  stopWatchingMock.mockReset();
+  stopWatchingMock.mockResolvedValue(undefined);
+  watchWorkspaceMock.mockReset();
+  watchWorkspaceMock.mockResolvedValue(1);
+  dialogOpenMock.mockReset();
+  listenMock.mockReset();
+  listenMock.mockResolvedValue(() => {});
   readMarkdownFileMock.mockImplementation(async (path: string) => snapshot(path, `# ${path}\n`));
+  listWorkspacesMock.mockResolvedValue([]);
+  listRecentWorkspacesMock.mockResolvedValue([]);
   useEditorStore.setState({
     document: null,
     draft: "",
@@ -88,14 +153,23 @@ beforeEach(() => {
     pendingPath: null,
     fileMissing: false,
   });
-  useWorkspaceStore.setState({ rootPath: "C:\\notes", tree, error: null });
+  useWorkspaceStore.setState({
+    workspace: {
+      schemaVersion: 1,
+      id: "ws-1",
+      name: "Personal",
+      mounts: [{ path: "C:\\notes", permission: "read-write" }],
+    },
+    treeByMount: { "C:\\notes": tree },
+    error: null,
+  });
 });
 
 test("renders the Local Knowledge IDE shell", () => {
-  useWorkspaceStore.setState({ rootPath: null, tree: [] });
+  useWorkspaceStore.setState({ workspace: null, treeByMount: {}, error: null });
   render(<App />);
   expect(screen.getByRole("application", { name: "Local Knowledge IDE" })).toBeInTheDocument();
-  expect(screen.getByText("Open a local folder to begin")).toBeInTheDocument();
+  expect(screen.getByText(/No workspace selected/)).toBeInTheDocument();
 });
 
 test("renders the load error when the first document load fails without an open document", async () => {
@@ -136,6 +210,7 @@ test("Save and Open saves the draft and then opens the target file", async () =>
   await waitFor(() => expect(useEditorStore.getState().document?.path).toBe(B_PATH));
   expect(saveMarkdownDocumentMock).toHaveBeenCalledTimes(1);
   expect(saveMarkdownDocumentMock).toHaveBeenCalledWith(
+    "ws-1",
     expect.objectContaining({ path: A_PATH, content: "# A edited\n" }),
   );
   expect(useEditorStore.getState().dirty).toBe(false);
@@ -241,7 +316,9 @@ test("Refresh rescans the workspace and shows the updated tree", async () => {
 
   await waitFor(() => expect(screen.getByRole("treeitem", { name: "c.md" })).toBeInTheDocument());
   expect(screen.queryByRole("treeitem", { name: "a.md" })).not.toBeInTheDocument();
-  expect(useWorkspaceStore.getState().rootPath).toBe("C:\\notes");
+  expect(useWorkspaceStore.getState().treeByMount["C:\\notes"]).toEqual([
+    { name: "c.md", path: "C:\\notes\\c.md", kind: "markdown" },
+  ]);
 });
 
 test("refresh that removes the open clean file shows missing state without closing it", async () => {
@@ -380,3 +457,222 @@ test("a later successful refresh clears the workspace error alert", async () => 
   expect(useWorkspaceStore.getState().error).toBeNull();
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });
+
+test("the welcome screen offers creating a workspace that lands in the main UI", async () => {
+  const user = userEvent.setup();
+  useWorkspaceStore.setState({ workspace: null, treeByMount: {}, error: null });
+  dialogOpenMock.mockResolvedValue("C:\\notes");
+  createWorkspaceApiMock.mockResolvedValue({
+    schemaVersion: 1,
+    id: "ws-new",
+    name: "Study",
+    mounts: [],
+  });
+  addMountApiMock.mockResolvedValue({
+    schemaVersion: 1,
+    id: "ws-new",
+    name: "Study",
+    mounts: [{ path: "C:\\notes", permission: "read-write" }],
+  });
+  scanRootMock.mockResolvedValue(tree);
+
+  render(<App />);
+
+  expect(screen.getByRole("region", { name: "New workspace" })).toBeInTheDocument();
+  await user.type(screen.getByLabelText("Workspace name"), "Study");
+  await user.click(screen.getByRole("button", { name: "Choose folder" }));
+  await user.click(screen.getByRole("button", { name: "Create Workspace" }));
+
+  await waitFor(() => expect(useWorkspaceStore.getState().workspace?.name).toBe("Study"));
+  expect(screen.getByRole("button", { name: "Refresh" })).toBeInTheDocument();
+  expect(screen.getByRole("treeitem", { name: "a.md" })).toBeInTheDocument();
+});
+
+test("switching to welcome with a dirty editor shows the guard and Discard proceeds", async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  await openDirtyA(user);
+
+  await user.click(screen.getByRole("button", { name: "Switch Workspace" }));
+
+  expect(screen.getByRole("dialog", { name: "Unsaved changes" })).toBeInTheDocument();
+  expect(useWorkspaceStore.getState().workspace).not.toBeNull();
+
+  await user.click(screen.getByRole("button", { name: "Discard and Switch" }));
+
+  await waitFor(() => expect(useWorkspaceStore.getState().workspace).toBeNull());
+  expect(screen.getByText(/No workspace selected/)).toBeInTheDocument();
+});
+
+test("Cancel keeps the current workspace when switching would lose a dirty draft", async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  await openDirtyA(user);
+
+  await user.click(screen.getByRole("button", { name: "Switch Workspace" }));
+  await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(useWorkspaceStore.getState().workspace).not.toBeNull();
+  expect(useEditorStore.getState().draft).toBe("# A edited\n");
+  expect(useEditorStore.getState().dirty).toBe(true);
+});
+
+test("Save and Switch saves the draft before leaving the workspace", async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  await openDirtyA(user);
+  saveMarkdownDocumentMock.mockResolvedValue({ modifiedAtMs: 1_700_000_000_500, size: 11 });
+
+  await user.click(screen.getByRole("button", { name: "Switch Workspace" }));
+  await user.click(screen.getByRole("button", { name: "Save and Switch" }));
+
+  await waitFor(() => expect(useWorkspaceStore.getState().workspace).toBeNull());
+  expect(saveMarkdownDocumentMock).toHaveBeenCalledWith(
+    "ws-1",
+    expect.objectContaining({ path: A_PATH, content: "# A edited\n" }),
+  );
+});
+
+test("switching to welcome without unsaved changes goes straight there", async () => {
+  const user = userEvent.setup();
+  render(<App />);
+
+  await user.click(screen.getByRole("button", { name: "Switch Workspace" }));
+
+  await waitFor(() => expect(useWorkspaceStore.getState().workspace).toBeNull());
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+});
+
+test("removing a mount that hosts the open dirty document shows the guard and defers removal until resolved", async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  await openDirtyA(user);
+
+  await user.click(screen.getByRole("button", { name: "Mounts" }));
+  await user.click(screen.getByRole("button", { name: "Remove C:\\notes" }));
+
+  expect(screen.getByRole("dialog", { name: "Unsaved changes" })).toBeInTheDocument();
+  expect(useWorkspaceStore.getState().workspace?.mounts).toHaveLength(1);
+  expect(removeMountApiMock).not.toHaveBeenCalled();
+  expect(useEditorStore.getState().document?.path).toBe(A_PATH);
+  expect(useEditorStore.getState().dirty).toBe(true);
+
+  await user.click(screen.getByRole("button", { name: "Discard and Remove Mount" }));
+
+  await waitFor(() => expect(useWorkspaceStore.getState().workspace?.mounts).toHaveLength(0));
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(useEditorStore.getState().document).toBeNull();
+});
+
+test("Save and Remove Mount saves the draft, removes the mount, and closes the document", async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  await openDirtyA(user);
+  saveMarkdownDocumentMock.mockResolvedValue({ modifiedAtMs: 1_700_000_000_500, size: 11 });
+
+  await user.click(screen.getByRole("button", { name: "Mounts" }));
+  await user.click(screen.getByRole("button", { name: "Remove C:\\notes" }));
+  await user.click(screen.getByRole("button", { name: "Save and Remove Mount" }));
+
+  await waitFor(() => expect(useWorkspaceStore.getState().workspace?.mounts).toHaveLength(0));
+  expect(saveMarkdownDocumentMock).toHaveBeenCalledWith(
+    "ws-1",
+    expect.objectContaining({ path: A_PATH, content: "# A edited\n" }),
+  );
+  expect(useEditorStore.getState().document).toBeNull();
+});
+
+test("removing a mount that hosts the open clean document proceeds without a dialog and closes it", async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  await user.click(screen.getByRole("treeitem", { name: "a.md" }));
+  await waitFor(() => expect(useEditorStore.getState().document?.path).toBe(A_PATH));
+
+  await user.click(screen.getByRole("button", { name: "Mounts" }));
+  await user.click(screen.getByRole("button", { name: "Remove C:\\notes" }));
+
+  await waitFor(() => expect(useWorkspaceStore.getState().workspace?.mounts).toHaveLength(0));
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(useEditorStore.getState().document).toBeNull();
+});
+
+test("removing a mount that does not host the open dirty document proceeds without a dialog", async () => {
+  const user = userEvent.setup();
+  useWorkspaceStore.setState({
+    workspace: {
+      schemaVersion: 1,
+      id: "ws-1",
+      name: "Personal",
+      mounts: [
+        { path: "C:\\notes", permission: "read-write" },
+        { path: "D:\\wiki", permission: "read-write" },
+      ],
+    },
+    treeByMount: {
+      "C:\\notes": tree,
+      "D:\\wiki": [{ name: "b.md", path: "D:\\wiki\\b.md", kind: "markdown" }],
+    },
+    error: null,
+  });
+  render(<App />);
+  await openDirtyA(user);
+
+  await user.click(screen.getByRole("button", { name: "Mounts" }));
+  await user.click(screen.getByRole("button", { name: "Remove D:\\wiki" }));
+
+  await waitFor(() =>
+    expect(useWorkspaceStore.getState().workspace?.mounts.map((m) => m.path)).not.toContain(
+      "D:\\wiki",
+    ),
+  );
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(useEditorStore.getState().dirty).toBe(true);
+});
+
+test("discarding on switch resets the editor so a later workspace click does not pop a spurious dialog", async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  await openDirtyA(user);
+
+  await user.click(screen.getByRole("button", { name: "Switch Workspace" }));
+  await user.click(screen.getByRole("button", { name: "Discard and Switch" }));
+  await waitFor(() => expect(useWorkspaceStore.getState().workspace).toBeNull());
+  expect(useEditorStore.getState().dirty).toBe(false);
+  expect(useEditorStore.getState().document).toBeNull();
+
+  act(() => {
+    useWorkspaceStore.setState({
+      workspace: {
+        schemaVersion: 1,
+        id: "ws-2",
+        name: "Other",
+        mounts: [{ path: "C:\\notes", permission: "read-write" }],
+      },
+      treeByMount: { "C:\\notes": tree },
+      error: null,
+    });
+  });
+
+  await user.click(screen.getByRole("treeitem", { name: "b.md" }));
+
+  await waitFor(() => expect(useEditorStore.getState().document?.path).toBe(B_PATH));
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(useEditorStore.getState().dirty).toBe(false);
+});
+
+test("a removed watcher event on the active document sets fileMissing", async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  await user.click(screen.getByRole("treeitem", { name: "a.md" }));
+  await waitFor(() => expect(useEditorStore.getState().document?.path).toBe(A_PATH));
+  scanRootMock.mockResolvedValue([{ name: "b.md", path: B_PATH, kind: "markdown" }]);
+
+  act(() => {
+    dispatchWatcherEvent({ kind: "removed", path: A_PATH });
+  });
+
+  await waitFor(() => expect(useEditorStore.getState().fileMissing).toBe(true));
+  expect(useEditorStore.getState().document?.path).toBe(A_PATH);
+});
+

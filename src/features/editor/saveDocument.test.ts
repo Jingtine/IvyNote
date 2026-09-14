@@ -54,15 +54,15 @@ test("buildSaveRequest normalizes CRLF and lone CR line endings in the draft", (
   expect(request.content).not.toContain("\r");
 });
 
-test("saveDocument delegates to saveMarkdownDocument with the built request", async () => {
+test("saveDocument delegates to saveMarkdownDocument with the built request and workspace id", async () => {
   const snapshot = makeSnapshot();
   const result = { modifiedAtMs: 1_700_000_000_500, size: 22 };
   saveMarkdownDocumentMock.mockResolvedValue(result);
 
-  const returned = await saveDocument(snapshot, "# Hello\nWorld\nEdited\n");
+  const returned = await saveDocument(snapshot, "# Hello\nWorld\nEdited\n", "ws-1");
 
   expect(saveMarkdownDocumentMock).toHaveBeenCalledTimes(1);
-  expect(saveMarkdownDocumentMock).toHaveBeenCalledWith({
+  expect(saveMarkdownDocumentMock).toHaveBeenCalledWith("ws-1", {
     path: "C:\\notes\\hello.md",
     content: "# Hello\nWorld\nEdited\n",
     expectedModifiedAtMs: 1_700_000_000_000,
@@ -76,7 +76,7 @@ test("saveDocument delegates to saveMarkdownDocument with the built request", as
 test("saveDocument propagates rejection", async () => {
   saveMarkdownDocumentMock.mockRejectedValue(new Error("save failed"));
 
-  await expect(saveDocument(makeSnapshot(), "# Draft\n")).rejects.toThrow("save failed");
+  await expect(saveDocument(makeSnapshot(), "# Draft\n", "ws-1")).rejects.toThrow("save failed");
 });
 
 test("isExternalModificationConflict matches the serialized Rust error code", () => {
